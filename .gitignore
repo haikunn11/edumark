@@ -1,0 +1,17 @@
+# Git ignore for EduMark project
+.env
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+.DS_Store
+.idea/
+.vscode/
+*.log
+*.tmp
+# Agent-specific directories
+.agents/
+.claude/
+brain4agent/

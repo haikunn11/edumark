@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="vi" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EduMark AI - Split-Screen Dashboard Chấm Bài Tự Động</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- KaTeX for beautiful Math / LaTeX Rendering -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  <style>
+    .math-font { font-family: 'Cambria Math', 'Times New Roman', serif; }
+    #image-container {
+      cursor: grab;
+      user-select: none;
+      transition: transform 0.1s ease-out;
+      transform-origin: center center;
+    }
+    #image-container.dragging {
+      cursor: grabbing;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.6);
+      border-radius: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(100, 116, 139, 0.45);
+      border-radius: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: rgba(148, 163, 184, 0.7);
+    }
+    .drag-active {
+      border: 3px dashed #6366f1 !important;
+      background-color: rgba(99, 102, 241, 0.08) !important;
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col font-sans transition-colors duration-200">
+
+  <!-- Header Bar -->
+  <header class="bg-slate-800 border-b border-slate-700 px-6 py-3 flex items-center justify-between shadow-sm select-none">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-500/25">
+        <i class="fa-solid fa-graduation-cap text-lg"></i>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-base font-bold text-white tracking-wide">EduMark AI</h1>
+          <span class="text-[10px] uppercase font-bold tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full">MVP v1.0</span>
+          <span id="badge-confidence" class="hidden text-xs px-2.5 py-0.5 rounded-full font-bold border">🟢 95%</span>
+        </div>
+        <p class="text-xs text-indigo-300 font-medium flex items-center gap-1.5" id="exam-title-header"><i class="fa-solid fa-wand-magic-sparkles text-indigo-400"></i><span>🎯 Tự động nhận diện Đề bài (Toán THCS)</span></p>
+      </div>
+    </div>
+
+    <!-- Center Status -->
+    <div class="hidden md:flex items-center gap-4 text-xs text-slate-300 bg-slate-900/60 border border-slate-700/60 px-4 py-1.5 rounded-full">
+      <span><i class="fa-solid fa-user text-indigo-400 mr-1.5"></i> <strong id="student-name-display">Nguyễn Văn An</strong></span>
+      <span class="text-slate-600">|</span>
+      <span>Trạng thái: <strong id="status-display" class="text-amber-400 font-semibold">Chưa chấm</strong></span>
+      <span class="text-slate-600">|</span>
+      <span id="cache-badge" class="hidden text-emerald-400 font-mono"><i class="fa-solid fa-bolt mr-1"></i>Cache Hit</span>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="flex items-center gap-2.5">
+      <!-- API Key Status Pill -->
+      <button onclick="openApiKeyModal()" id="btn-api-key" class="bg-slate-700/70 hover:bg-slate-700 text-xs px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1.5 border border-slate-600">
+        <span id="api-dot" class="w-2 h-2 rounded-full bg-amber-400"></span>
+        <span id="api-label" class="text-slate-300 font-mono text-[11px]">Cài API Key</span>
+      </button>
+
+      <button onclick="toggleDarkMode()" title="Đổi giao diện Sáng / Tối" class="p-2 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-300 text-xs border border-slate-600 transition">
+        <i id="dark-icon" class="fa-solid fa-moon"></i>
+      </button>
+
+      <button onclick="openUploadModal()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-3 py-2 rounded-lg font-medium transition flex items-center gap-1.5 shadow">
+        <i class="fa-solid fa-cloud-arrow-up"></i> <span>Tải bài thi</span>
+      </button>
+
+      <button onclick="openOverrideModal()" id="btn-override" class="bg-amber-600 hover:bg-amber-500 text-white text-xs px-3 py-2 rounded-lg font-medium transition flex items-center gap-1.5 shadow">
+        <i class="fa-solid fa-pen-to-square"></i> <span>Sửa điểm (O)</span>
+      </button>
+
+      <button onclick="approveCurrentSubmission()" id="btn-approve" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-4 py-2 rounded-lg font-semibold transition flex items-center gap-1.5 shadow-lg shadow-emerald-600/20">
+        <i class="fa-solid fa-check-double"></i> <span>Duyệt bài (A)</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Top Mock Warning Banner -->
+  <div id="mock-banner" class="hidden bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 flex items-center justify-between text-xs text-amber-200 z-20">
+    <div class="flex items-center gap-2">
+      <i class="fa-solid fa-triangle-exclamation text-amber-400 text-sm"></i>
+      <span><strong>Chế độ Giả lập (Chưa cấu hình Gemini API Key):</strong> Ảnh bài thi kéo thả vào sẽ tạm thời hiển thị dữ liệu mẫu. Để AI đọc chữ viết tay và chấm điểm bài thật của bạn, hãy bấm nút cài đặt API Key (Google cung cấp miễn phí 100%).</span>
+    </div>
+    <button onclick="openApiKeyModal()" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1 rounded text-[11px] whitespace-nowrap ml-4 transition shadow">
+      <i class="fa-solid fa-key mr-1"></i> Cài API Key ngay
+    </button>
+  </div>
+
+  <!-- Main Split-Screen Layout -->
+  <main class="flex-1 grid grid-cols-12 gap-0 overflow-hidden relative">
+
+    <!-- LEFT PANEL: Image Viewer (7 / 12) -->
+    <section class="col-span-12 lg:col-span-7 bg-slate-950 flex flex-col border-r border-slate-800 relative overflow-hidden select-none">
+      
+      <!-- Image Toolbar -->
+      <div class="bg-slate-900/90 backdrop-blur-sm border-b border-slate-800 px-4 py-2 flex items-center justify-between text-xs text-slate-400 z-10">
+        <div class="flex items-center gap-2">
+          <span class="font-bold text-slate-300 uppercase tracking-wider text-[11px]"><i class="fa-solid fa-image text-indigo-400 mr-1.5"></i>Bài thi học sinh</span>
+          <span id="blur-warning" class="hidden bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded text-[10px] font-semibold"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Ảnh bị mờ</span>
+          <span id="loading-pill" class="hidden bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded text-[10px] font-semibold"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Đang phân tích AI...</span>
+        </div>
+
+        <!-- Zoom Controls -->
+        <div class="flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg p-0.5">
+          <button onclick="zoomImage(-0.2)" title="Thu nhỏ (-)" class="p-1.5 hover:bg-slate-700 rounded text-slate-300"><i class="fa-solid fa-minus"></i></button>
+          <span id="zoom-level-text" class="px-2 font-mono text-[11px] text-slate-300 min-w-[45px] text-center">100%</span>
+          <button onclick="zoomImage(+0.2)" title="Phóng to (+)" class="p-1.5 hover:bg-slate-700 rounded text-slate-300"><i class="fa-solid fa-plus"></i></button>
+          <button onclick="resetZoom()" title="Đặt lại (R)" class="p-1.5 hover:bg-slate-700 rounded text-slate-300 border-l border-slate-700 ml-0.5"><i class="fa-solid fa-arrows-rotate"></i></button>
+        </div>
+      </div>
+
+      <!-- Image Canvas Viewport (With Drag & Drop) -->
+      <div id="image-viewport" class="flex-1 relative overflow-hidden flex items-center justify-center p-6 bg-slate-950 transition-all duration-150">
+        <div id="image-container" class="relative max-w-full max-h-full">
+          <img id="paper-image" src="" alt="Chưa có ảnh bài thi" class="hidden rounded-lg shadow-2xl border border-slate-700/80 max-h-[80vh] object-contain" />
+          
+          <!-- Empty State / Drag Drop Zone -->
+          <div id="image-placeholder" class="text-center p-12 border-2 border-dashed border-slate-700 rounded-2xl max-w-md pointer-events-none">
+            <div class="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center text-indigo-400 mx-auto mb-4 text-2xl shadow-inner">
+              <i class="fa-solid fa-hand-holding-hand"></i>
+            </div>
+            <h3 class="text-sm font-semibold text-slate-200 mb-1">Kéo thả ảnh bài thi viết tay vào đây</h3>
+            <p class="text-xs text-slate-400 mb-4 leading-relaxed">Hỗ trợ ảnh chụp điện thoại (JPEG, PNG) hoặc tài liệu PDF.<br><span class="text-indigo-400 font-medium">Hệ thống sẽ tự nắn thẳng, khử mờ và chấm điểm.</span></p>
+            <div class="flex items-center justify-center gap-2 pointer-events-auto">
+              <button onclick="openUploadModal()" class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-1.5 rounded-lg transition font-medium shadow">
+                <i class="fa-solid fa-cloud-arrow-up mr-1"></i> Chọn tệp từ máy
+              </button>
+              <button onclick="runDefaultDemo()" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg transition">
+                <i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Bài thi mẫu
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Navigation & Shortcuts Info Footer -->
+      <div class="bg-slate-900 border-t border-slate-800 px-4 py-2 flex items-center justify-between text-[11px] text-slate-500">
+        <div class="flex items-center gap-3">
+          <span><kbd class="px-1 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-400">Cuộn chuột</kbd> Zoom</span>
+          <span><kbd class="px-1 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-400">Kéo chuột</kbd> Di chuyển ảnh</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span><kbd class="px-1 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-400">A</kbd> Duyệt</span>
+          <span><kbd class="px-1 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-400">O</kbd> Sửa điểm</span>
+          <span><kbd class="px-1 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-400">Space</kbd> Duyệt bài</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT PANEL: Rubric & Score Review (5 / 12) -->
+    <section class="col-span-12 lg:col-span-5 bg-slate-900 flex flex-col justify-between overflow-y-auto custom-scrollbar border-l border-slate-800">
+      <div class="p-6">
+        
+        <!-- Mock Warning Box when no key is set -->
+        <div id="mock-warning-card" class="hidden bg-amber-950/40 border border-amber-600/60 rounded-xl p-3.5 mb-4 text-xs text-amber-300 shadow">
+          <div class="font-bold flex items-center justify-between text-amber-200 mb-1">
+            <span class="flex items-center gap-1.5"><i class="fa-solid fa-triangle-exclamation text-amber-400"></i> Đây là Kết quả Giả lập (Mock)</span>
+            <span class="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 rounded font-mono">Chưa có API Key</span>
+          </div>
+          <p class="text-[11px] text-amber-300/90 leading-relaxed mb-2.5">
+            Hệ thống chưa có Google Gemini API Key để gửi ảnh chữ viết tay này đi phân tích. Kết quả hiển thị đang là bài giải mẫu. Bạn hãy nhấn nút dưới đây để kích hoạt AI thật:
+          </p>
+          <button onclick="openApiKeyModal()" class="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-lg text-xs transition flex items-center justify-center gap-1.5 shadow">
+            <i class="fa-solid fa-key"></i> Dán Gemini API Key để AI chấm ảnh thật (Miễn phí)
+          </button>
+        </div>
+
+        <!-- Score Overview Card -->
+        <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-4 mb-4 shadow-sm">
+          <div class="flex items-center justify-between mb-2">
+            <div>
+              <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">ĐỐI SOÁT ĐIỂM SỐ BAREM</span>
+              <p class="text-xs text-slate-300 font-medium" id="question-id-title">Câu 1: Giải phương trình</p>
+            </div>
+            <div class="text-right">
+              <span class="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold">TỔNG ĐIỂM</span>
+              <div class="text-3xl font-black text-amber-400 font-mono tracking-tight" id="display-total-score">
+                0.0 <span class="text-xs font-normal text-slate-500">/ 2.0đ</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Error Propagation Alert Banner -->
+          <div id="error-prop-banner" class="hidden mt-3 bg-purple-950/60 border border-purple-800/80 text-purple-300 p-3 rounded-lg text-xs leading-relaxed">
+            <div class="font-bold flex items-center gap-1.5 text-purple-200 mb-0.5">
+              <i class="fa-solid fa-bolt-lightning text-amber-400"></i> PHÁT HIỆN LỖI LAN TRUYỀN (ERROR PROPAGATION)
+            </div>
+            <p class="text-[11px] text-purple-300/90" id="error-prop-text">
+              Học sinh tính toán sai ở bước biến đổi nhưng bước sau vẫn vận dụng đúng phương pháp. Hệ thống đã tự động bảo lưu điểm phương pháp!
+            </p>
+          </div>
+        </div>
+
+        <!-- Rubric Step-by-Step Breakdown List -->
+        <div class="mb-4">
+          <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center justify-between">
+            <span>Chi tiết từng tiêu chí chấm</span>
+            <span class="text-[11px] text-slate-500 font-normal">Tự động so khớp barem</span>
+          </h3>
+          <div class="space-y-2.5 max-h-[360px] overflow-y-auto custom-scrollbar pr-1" id="criteria-list">
+            <div class="text-center py-8 text-xs text-slate-500 italic">
+              Chưa có kết quả. Kéo thả ảnh hoặc chọn bài thi để chấm.
+            </div>
+          </div>
+        </div>
+
+        <!-- Extracted OCR Lines Accordion (Chi tiết nét chữ đọc được) -->
+        <div class="mb-4 bg-slate-800/40 border border-slate-700/80 rounded-xl p-3">
+          <details class="cursor-pointer" open>
+            <summary class="text-xs font-semibold text-slate-400 hover:text-slate-200 flex items-center justify-between">
+              <span><i class="fa-solid fa-lines-leaning mr-1.5 text-indigo-400"></i> Văn bản & LaTeX AI đọc từ ảnh (<span id="ocr-line-count">0</span> dòng)</span>
+              <i class="fa-solid fa-chevron-down text-[10px]"></i>
+            </summary>
+            <div id="ocr-lines-container" class="mt-2.5 space-y-1.5 max-h-[220px] overflow-y-auto custom-scrollbar text-xs font-mono text-slate-300 pr-1">
+              <div class="text-slate-500 italic text-[11px]">Chưa có dữ liệu OCR.</div>
+            </div>
+          </details>
+        </div>
+
+        <!-- AI Pedagogical Feedback Box -->
+        <div class="bg-slate-800/50 border border-slate-700/80 rounded-xl p-4">
+          <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5 flex items-center gap-1.5">
+            <i class="fa-solid fa-comment-dots text-indigo-400"></i> Lời phê sư phạm AI tự sinh:
+          </label>
+          <div class="max-h-[110px] overflow-y-auto custom-scrollbar pr-1">
+            <p class="text-xs text-slate-300 leading-relaxed italic" id="ai-feedback-box">
+              "Vui lòng tải ảnh bài thi để AI phân tích và tạo nhận xét."
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Score Adjust Bottom Bar -->
+      <div class="bg-slate-800/90 border-t border-slate-700/80 px-6 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-slate-400 font-medium">Sửa nhanh:</span>
+          <button onclick="quickAdjustScore(-0.25)" class="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded border border-slate-600 font-mono text-xs font-bold transition">-0.25</button>
+          <button onclick="quickAdjustScore(+0.25)" class="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded border border-slate-600 font-mono text-xs font-bold transition">+0.25</button>
+          <button onclick="quickAdjustScore(+0.5)" class="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded border border-slate-600 font-mono text-xs font-bold transition">+0.50</button>
+        </div>
+        <div class="text-xs text-slate-400">
+          Phím tắt: <kbd class="px-1.5 py-0.5 bg-slate-700 border border-slate-600 rounded text-slate-300 font-mono">Space</kbd> Duyệt
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Upload Modal -->
+  <div id="upload-modal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-cloud-arrow-up text-indigo-400"></i> Tải bài thi học sinh
+        </h3>
+        <button onclick="closeUploadModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Tên học sinh:</label>
+          <input type="text" id="input-student-name" value="Nguyễn Văn An" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Chế độ chấm / Barem:</label>
+          <select id="input-exam-id" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
+            <option value="AUTO" selected>🎯 Tự động nhận diện Đề bài từ ảnh (Khuyên dùng - Không bắt điều kiện thừa)</option>
+            <option value="TOAN9_01">Kiểm tra 15p: Phương trình chứa ẩn ở mẫu (TOAN9_01)</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Chọn ảnh bài làm (JPEG, PNG, PDF):</label>
+          <input type="file" id="input-file" accept="image/*,application/pdf" class="w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-500 cursor-pointer" />
+        </div>
+
+        <div id="upload-error" class="hidden text-xs text-rose-400 bg-rose-950/50 border border-rose-800 p-2.5 rounded-lg"></div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button onclick="closeUploadModal()" class="px-3.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-medium">Hủy</button>
+          <button onclick="submitGradeUpload()" id="btn-submit-upload" class="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5">
+            <i class="fa-solid fa-bolt"></i> Bắt đầu chấm AI
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- API Key Modal (Cài đặt OpenAI / Gemini Key) -->
+  <div id="api-key-modal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-key text-amber-400"></i> Cấu hình AI API Key (OpenAI / Gemini)
+        </h3>
+        <button onclick="closeApiKeyModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="space-y-4 text-xs">
+        <div class="bg-indigo-950/40 border border-indigo-800/60 p-3 rounded-lg text-indigo-300 leading-relaxed">
+          <i class="fa-solid fa-circle-info mr-1"></i> Hệ thống hỗ trợ <strong>OpenAI (gpt-4o-mini ngon-bổ-rẻ)</strong> hoặc <strong>Google Gemini</strong> để đọc mọi nét chữ viết tay thật và chấm điểm chuẩn xác theo Barem.
+        </div>
+
+        <div>
+          <label class="block font-medium text-slate-300 mb-1">Dán API Key của bạn (OpenAI sk-... hoặc Gemini AIza...):</label>
+          <input type="password" id="input-api-key" placeholder="sk-... hoặc AIza..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500" />
+          <p class="text-[11px] text-slate-400 mt-1">
+            Hỗ trợ tự động nhận diện OpenAI và Google Gemini.
+          </p>
+        </div>
+
+        <div id="api-key-msg" class="hidden p-2.5 rounded-lg text-xs"></div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button onclick="closeApiKeyModal()" class="px-3.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-medium">Đóng</button>
+          <button onclick="saveApiKey()" id="btn-save-key" class="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5">
+            <i class="fa-solid fa-floppy-disk"></i> Lưu & Kích hoạt AI
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Teacher Override Modal (WP-13) -->
+  <div id="override-modal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-pen-to-square text-amber-400"></i> Giáo viên điều chỉnh điểm số (Override)
+        </h3>
+        <button onclick="closeOverrideModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="space-y-4">
+        <div class="bg-slate-900/60 p-3 rounded-lg border border-slate-700 text-xs flex justify-between items-center">
+          <span class="text-slate-400">Điểm AI đề xuất ban đầu:</span>
+          <strong class="text-amber-400 text-base font-mono" id="modal-ai-score">1.0 đ</strong>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Điểm số mới của giáo viên:</label>
+          <input type="number" step="0.25" min="0" max="10.0" id="input-override-score" value="10.0" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono font-bold focus:outline-none focus:border-amber-500" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Ghi chú của giáo viên (Bắt buộc khi sửa):</label>
+          <textarea id="input-override-note" rows="3" placeholder="Ví dụ: Cộng 0.25đ khuyến khích chữ đẹp và phương pháp sáng tạo..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"></textarea>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button onclick="closeOverrideModal()" class="px-3.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-medium">Hủy</button>
+          <button onclick="submitTeacherOverride()" class="px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold flex items-center gap-1.5">
+            <i class="fa-solid fa-check"></i> Lưu điểm & Duyệt
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- JavaScript Application Logic -->
+  <script>
+    let currentSubmission = null;
+    let zoomScale = 1.0;
+    let isDragging = false;
+    let startX, startY, translateX = 0, translateY = 0;
+
+    const imgContainer = document.getElementById('image-container');
+    const imgViewport = document.getElementById('image-viewport');
+
+    function updateImageTransform() {
+      imgContainer.style.transform = `translate(${translateX}px, ${translateY}px) scale(${zoomScale})`;
+      document.getElementById('zoom-level-text').textContent = `${Math.round(zoomScale * 100)}%`;
+    }
+
+    function zoomImage(delta) {
+      zoomScale = Math.max(0.4, Math.min(3.0, zoomScale + delta));
+      updateImageTransform();
+    }
+
+    function resetZoom() {
+      zoomScale = 1.0;
+      translateX = 0;
+      translateY = 0;
+      updateImageTransform();
+    }
+
+    imgViewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      zoomImage(e.deltaY < 0 ? 0.15 : -0.15);
+    });
+
+    imgViewport.addEventListener('mousedown', (e) => {
+      if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+      isDragging = true;
+      startX = e.clientX - translateX;
+      startY = e.clientY - translateY;
+      imgContainer.classList.add('dragging');
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      translateX = e.clientX - startX;
+      translateY = e.clientY - startY;
+      updateImageTransform();
+    });
+
+    window.addEventListener('mouseup', () => {
+      isDragging = false;
+      imgContainer.classList.remove('dragging');
+    });
+
+    // DRAG AND DROP FILE DIRECTLY ON VIEWPORT
+    imgViewport.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      imgViewport.classList.add('drag-active');
+    });
+
+    imgViewport.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      imgViewport.classList.remove('drag-active');
+    });
+
+    imgViewport.addEventListener('drop', (e) => {
+      e.preventDefault();
+      imgViewport.classList.remove('drag-active');
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        uploadAndGradeFile(e.dataTransfer.files[0], 'Học sinh');
+      }
+    });
+
+    let isKeyConfigured = false;
+
+    // Check API Key Status on Load
+    async function checkApiKeyStatus() {
+      try {
+        const res = await fetch('/api/v1/config/key-status');
+        const data = await res.json();
+        const dot = document.getElementById('api-dot');
+        const label = document.getElementById('api-label');
+        const banner = document.getElementById('mock-banner');
+        isKeyConfigured = Boolean(data.configured);
+        if (data.configured) {
+          dot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+          const providerName = data.provider === 'openai' ? `OpenAI (${data.model})` : 'Gemini AI';
+          label.textContent = `${providerName} Sẵn sàng`;
+          label.className = 'text-emerald-300 font-mono text-[11px]';
+          if (banner) banner.classList.add('hidden');
+        } else {
+          dot.className = 'w-2 h-2 rounded-full bg-amber-400';
+          label.textContent = 'Chưa có API Key';
+          label.className = 'text-amber-300 font-mono text-[11px]';
+          if (banner) banner.classList.remove('hidden');
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function openApiKeyModal() {
+      document.getElementById('api-key-modal').classList.remove('hidden');
+    }
+
+    function closeApiKeyModal() {
+      document.getElementById('api-key-modal').classList.add('hidden');
+      document.getElementById('api-key-msg').classList.add('hidden');
+    }
+
+    async function saveApiKey() {
+      const key = document.getElementById('input-api-key').value.trim();
+      const msgBox = document.getElementById('api-key-msg');
+      const btn = document.getElementById('btn-save-key');
+      if (!key) {
+        msgBox.className = 'p-2.5 rounded-lg text-xs bg-rose-950/60 border border-rose-800 text-rose-300';
+        msgBox.textContent = 'Vui lòng nhập API key!';
+        msgBox.classList.remove('hidden');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang xác thực...';
+
+      try {
+        const res = await fetch('/api/v1/config/key', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api_key: key }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          msgBox.className = 'p-2.5 rounded-lg text-xs bg-emerald-950/60 border border-emerald-800 text-emerald-300';
+          msgBox.textContent = 'Đã xác thực và kích hoạt Gemini AI thành công! Giờ bạn có thể kéo ảnh vào để AI chấm.';
+          msgBox.classList.remove('hidden');
+          checkApiKeyStatus();
+          setTimeout(() => closeApiKeyModal(), 1800);
+        } else {
+          throw new Error(data.detail || 'Lỗi lưu key');
+        }
+      } catch (err) {
+        msgBox.className = 'p-2.5 rounded-lg text-xs bg-rose-950/60 border border-rose-800 text-rose-300';
+        msgBox.textContent = err.message;
+        msgBox.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Lưu & Kích hoạt AI';
+      }
+    }
+
+    // Dark Mode Toggle
+    function toggleDarkMode() {
+      const isDark = document.documentElement.classList.toggle('dark');
+      document.getElementById('dark-icon').className = isDark ? 'fa-solid fa-moon' : 'fa-solid fa-sun text-amber-400';
+      localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    }
+
+    function openUploadModal() {
+      document.getElementById('upload-modal').classList.remove('hidden');
+    }
+
+    function closeUploadModal() {
+      document.getElementById('upload-modal').classList.add('hidden');
+      document.getElementById('upload-error').classList.add('hidden');
+    }
+
+    function openOverrideModal() {
+      if (!currentSubmission) {
+        alert('Vui lòng chấm bài trước khi sửa điểm!');
+        return;
+      }
+      const maxPts = currentSubmission.total_points || 10.0;
+      document.getElementById('modal-ai-score').textContent = `${currentSubmission.ai_total_score} / ${maxPts.toFixed(1)}đ`;
+      const inputEl = document.getElementById('input-override-score');
+      inputEl.max = maxPts;
+      inputEl.value = currentSubmission.final_score !== null ? currentSubmission.final_score : currentSubmission.ai_total_score;
+      document.getElementById('override-modal').classList.remove('hidden');
+    }
+
+    function closeOverrideModal() {
+      document.getElementById('override-modal').classList.add('hidden');
+    }
+
+    function renderAllMath(target) {
+      const el = target || document.body;
+      if (window.renderMathInElement) {
+        try {
+          renderMathInElement(el, {
+            delimiters: [
+              { left: '$$', right: '$$', display: true },
+              { left: '$', right: '$', display: false },
+              { left: '\\(', right: '\\)', display: false },
+              { left: '\\[', right: '\\]', display: true }
+            ],
+            ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+            throwOnError: false
+          });
+        } catch (e) {
+          console.warn('KaTeX render notice:', e);
+        }
+      } else {
+        setTimeout(() => renderAllMath(target), 200);
+      }
+    }
+
+    function formatMathSnippet(text) {
+      if (!text) return '';
+      let s = String(text).trim();
+      // Nếu đã có $...$ hoặc $$...$$ thì giữ nguyên để KaTeX parse đúng
+      if (s.includes('$')) return s;
+
+      // Kiểm tra xem chuỗi có chứa chữ cái tiếng Việt có dấu hay không
+      const hasVietnamese = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđĐ]/i.test(s);
+
+      // TRƯỜNG HỢP 1: Dòng công thức Toán thuần túy (không có tiếng Việt có dấu, không phải nhãn text ngắn như C1, C2)
+      if (!hasVietnamese) {
+        // Nếu chỉ là nhãn chữ ngắn như "C1", "C2", "C3", "TEXT", giữ nguyên văn bản thường
+        if (/^(?:C[1-9]|TEXT|UNKNOWN|EQUATION)$/i.test(s)) {
+          return s;
+        }
+        // Dòng toán học: Bọc toàn bộ dòng vào $ ... $ để KaTeX render trọn vẹn mọi phân số, dấu ngoặc nhọn hệ phương trình
+        return `$${s}$`;
+      }
+
+      // TRƯỜNG HỢP 2: Lời phê hoặc tiêu chí chứa tiếng Việt xen lẫn công thức LaTeX
+      // Nhận diện từng khối công thức LaTeX (bao gồm phân thức, hệ phương trình, đẳng thức) và bọc riêng từng khối vào $...$
+      // Giúp giữ 100% khoảng trắng và font chữ tự nhiên của tiếng Việt!
+      return s.replace(/(\\(?:begin\{cases\}[\s\S]*?\\end\{cases\}|frac\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}|[a-zA-Z]+)(?:\s*=\s*(?:\\(?:frac\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}|[a-zA-Z]+)|[0-9\/\+\-\*a-zA-Z]+))*)/g, '$$$1$$');
+    }
+
+    function quickAdjustScore(delta) {
+      if (!currentSubmission) return;
+      const maxPts = currentSubmission.total_points || 10.0;
+      let newScore = Math.max(0, Math.min(maxPts, (currentSubmission.final_score !== null ? currentSubmission.final_score : currentSubmission.ai_total_score) + delta));
+      currentSubmission.final_score = parseFloat(newScore.toFixed(2));
+      document.getElementById('display-total-score').innerHTML = `${currentSubmission.final_score.toFixed(2)} <span class="text-xs font-normal text-slate-500">/ ${maxPts.toFixed(1)}đ</span>`;
+    }
+
+    // Render Data into UI
+    function renderGradingRecord(data) {
+      currentSubmission = data;
+      document.getElementById('student-name-display').textContent = data.student_name || 'Học sinh';
+      document.getElementById('status-display').textContent = data.status;
+      document.getElementById('status-display').className = data.status === 'APPROVED' ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold';
+
+      const totalPossible = data.total_points || 10.0;
+
+      const mockCard = document.getElementById('mock-warning-card');
+      if (mockCard) {
+        if (data.is_mock) {
+          mockCard.classList.remove('hidden');
+        } else {
+          mockCard.classList.add('hidden');
+        }
+      }
+
+      const cacheBadge = document.getElementById('cache-badge');
+      if (data.cache_hit) {
+        cacheBadge.classList.remove('hidden');
+      } else {
+        cacheBadge.classList.add('hidden');
+      }
+
+      const blurWarning = document.getElementById('blur-warning');
+      if (data.quality && data.quality.is_blurry) {
+        blurWarning.classList.remove('hidden');
+      } else {
+        blurWarning.classList.add('hidden');
+      }
+
+      const score = data.final_score !== null ? data.final_score : data.ai_total_score;
+      document.getElementById('display-total-score').innerHTML = `${score.toFixed(2)} <span class="text-xs font-normal text-slate-500">/ ${totalPossible.toFixed(1)}đ</span>`;
+
+      // Confidence badge
+      const confBadge = document.getElementById('badge-confidence');
+      confBadge.classList.remove('hidden');
+      const qResult = data.question_results && data.question_results[0];
+      const confLevel = qResult ? qResult.confidence_level : 'green';
+
+      if (confLevel === 'green') {
+        confBadge.className = 'text-xs px-2.5 py-0.5 rounded-full font-bold border bg-emerald-950/60 text-emerald-400 border-emerald-800';
+        confBadge.textContent = `🟢 ${(qResult.confidence * 100).toFixed(0)}% Tự tin`;
+      } else if (confLevel === 'yellow') {
+        confBadge.className = 'text-xs px-2.5 py-0.5 rounded-full font-bold border bg-amber-950/60 text-amber-400 border-amber-800';
+        confBadge.textContent = `🟡 ${(qResult.confidence * 100).toFixed(0)}% Cần xem lại`;
+      } else {
+        confBadge.className = 'text-xs px-2.5 py-0.5 rounded-full font-bold border bg-rose-950/60 text-rose-400 border-rose-800';
+        confBadge.textContent = `🔴 Thấp, cần đối soát`;
+      }
+
+      // Update Header with detected exam title
+      const headerTitle = document.getElementById('exam-title-header');
+      if (headerTitle && data.exam_title) {
+        headerTitle.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles text-indigo-400"></i><span class="math-content">${formatMathSnippet(data.exam_title)}</span>`;
+      }
+
+      // Render criteria
+      const criteriaList = document.getElementById('criteria-list');
+      const errorPropBanner = document.getElementById('error-prop-banner');
+
+      const titleEl = document.getElementById('question-id-title');
+      if (titleEl) {
+        const titleText = data.exam_title || (data.exam_id === 'AUTO' ? '🎯 Đề bài tự động nhận diện từ ảnh' : data.exam_id);
+        titleEl.innerHTML = `<span class="math-content">${formatMathSnippet(titleText)}</span>`;
+      }
+
+      if (qResult) {
+        const commentEl = document.getElementById('ai-feedback-box');
+        if (commentEl) {
+          commentEl.innerHTML = `<span class="math-content">${formatMathSnippet(qResult.teacher_summary_comment || 'Em nắm chắc kiến thức cơ bản.')}</span>`;
+        }
+        
+        if (qResult.error_propagation_detected) {
+          errorPropBanner.classList.remove('hidden');
+        } else {
+          errorPropBanner.classList.add('hidden');
+        }
+
+        criteriaList.innerHTML = '';
+        (qResult.criteria_evaluations || qResult.criteria_evaluation || []).forEach((c, idx) => {
+          const isPassed = c.status === 'passed';
+          const isPartial = c.status === 'partial';
+          const badgeClass = isPassed ? 'text-emerald-400 bg-emerald-950/60 border-emerald-800' :
+                             isPartial ? 'text-amber-400 bg-amber-950/60 border-amber-800' :
+                             'text-rose-400 bg-rose-950/60 border-rose-800';
+          const icon = isPassed ? '<i class="fa-solid fa-circle-check text-emerald-400 mr-1.5"></i>' :
+                       isPartial ? '<i class="fa-solid fa-circle-half-stroke text-amber-400 mr-1.5"></i>' :
+                       '<i class="fa-solid fa-circle-xmark text-rose-400 mr-1.5"></i>';
+
+          const card = document.createElement('div');
+          card.className = 'bg-slate-800/80 border border-slate-700/80 rounded-xl p-3 shadow-sm hover:border-slate-600 transition';
+          const critName = c.name ? `${idx + 1}. ${c.name}` : `${idx + 1}. ${c.criterion_id}`;
+          card.innerHTML = `
+            <div class="flex items-center justify-between text-xs mb-1">
+              <span class="font-semibold text-slate-200 math-content">${formatMathSnippet(critName)}</span>
+              <span class="${badgeClass} px-2 py-0.5 rounded font-mono font-bold text-[11px] border">
+                ${c.earned_points || c.score} / ${c.max_points || c.max_score}đ
+              </span>
+            </div>
+            <p class="text-[12px] text-slate-400 leading-relaxed">${icon} <span class="math-content">${formatMathSnippet(c.feedback)}</span></p>
+          `;
+          criteriaList.appendChild(card);
+        });
+      }
+
+      // Render ALL OCR lines across all questions (capturing C1, C2, etc.)
+      const allOcrLines = [];
+      (data.extracted_questions || []).forEach(q => {
+        (q.lines || []).forEach(l => {
+          allOcrLines.push({ ...l, q_id: q.question_id });
+        });
+      });
+
+      document.getElementById('ocr-line-count').textContent = allOcrLines.length;
+      const ocrBox = document.getElementById('ocr-lines-container');
+      if (allOcrLines.length > 0) {
+        ocrBox.innerHTML = '';
+        allOcrLines.forEach(l => {
+          const lineEl = document.createElement('div');
+          lineEl.className = 'p-2 bg-slate-900 rounded border border-slate-800 flex items-center justify-between text-[11px] gap-2';
+          const lineRaw = l.latex || l.raw_text || '';
+          lineEl.innerHTML = `
+            <div class="flex items-center gap-2 overflow-x-auto">
+              <span class="px-1.5 py-0.5 rounded text-[10px] font-mono uppercase bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 shrink-0">${l.line_type}</span>
+              <span class="text-slate-200 math-content">${formatMathSnippet(lineRaw)}</span>
+            </div>
+            <span class="text-slate-500 font-mono text-[10px] shrink-0">${(l.confidence * 100).toFixed(0)}%</span>
+          `;
+          ocrBox.appendChild(lineEl);
+        });
+      }
+
+      // Trigger KaTeX render across all updated math nodes
+      renderAllMath();
+    }
+
+    // Upload & Grade function
+    async function uploadAndGradeFile(file, studentName = 'Học sinh') {
+      const loadingPill = document.getElementById('loading-pill');
+      loadingPill.classList.remove('hidden');
+
+      // Preview local image immediately
+      const placeholder = document.getElementById('image-placeholder');
+      const img = document.getElementById('paper-image');
+      placeholder.classList.add('hidden');
+      img.classList.remove('hidden');
+      img.src = URL.createObjectURL(file);
+      resetZoom();
+
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('student_name', studentName);
+      const examSelect = document.getElementById('input-exam-id');
+      const selectedExam = examSelect ? examSelect.value : 'AUTO';
+      formData.append('exam_id', selectedExam || 'AUTO');
+
+      try {
+        const response = await fetch('/api/v1/submissions/grade', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errData = await response.json();
+          throw new Error(errData.detail ? JSON.stringify(errData.detail) : 'Lỗi xử lý');
+        }
+
+        const data = await response.json();
+        renderGradingRecord(data);
+      } catch (err) {
+        alert('Lỗi chấm bài: ' + err.message);
+      } finally {
+        loadingPill.classList.add('hidden');
+      }
+    }
+
+    async function submitGradeUpload() {
+      const fileInput = document.getElementById('input-file');
+      const studentName = document.getElementById('input-student-name').value;
+      const btn = document.getElementById('btn-submit-upload');
+      const errBox = document.getElementById('upload-error');
+
+      if (!fileInput.files || fileInput.files.length === 0) {
+        errBox.textContent = 'Vui lòng chọn 1 tệp ảnh hoặc PDF!';
+        errBox.classList.remove('hidden');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Đang tải...`;
+      closeUploadModal();
+      await uploadAndGradeFile(fileInput.files[0], studentName);
+      btn.disabled = false;
+      btn.innerHTML = `<i class="fa-solid fa-bolt"></i> Bắt đầu chấm AI`;
+    }
+
+    // Run Default Demo
+    async function runDefaultDemo() {
+      const placeholder = document.getElementById('image-placeholder');
+      const img = document.getElementById('paper-image');
+      placeholder.classList.add('hidden');
+      img.classList.remove('hidden');
+      img.src = 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=800&auto=format&fit=crop&q=80';
+
+      const demoRecord = {
+        submission_id: 'sub_demo_01',
+        student_name: 'Nguyễn Văn An (Lớp 9A1)',
+        status: 'GRADED_DRAFT',
+        cache_hit: true,
+        ai_total_score: 1.0,
+        final_score: 1.0,
+        quality: { is_blurry: false, blur_score: 543.6 },
+        question_results: [
+          {
+            question_id: 'Q1',
+            suggested_score: 1.0,
+            earned_points: 1.0,
+            max_score: 2.0,
+            total_points: 2.0,
+            confidence: 0.95,
+            confidence_level: 'green',
+            error_propagation_detected: false,
+            teacher_summary_comment: 'Em nắm được phương pháp giải cơ bản, tuy nhiên thiếu bước đặt ĐKXĐ (x ≠ 2) và quên đối chiếu nghiệm trước khi kết luận!',
+            criteria_evaluations: [
+              { criterion_id: 'Q1_C1_DKXD', score: 0.0, max_score: 0.5, status: 'failed', feedback: 'Thiếu bước đặt điều kiện xác định (x ≠ 2).' },
+              { criterion_id: 'Q1_C2_BIEN_DOI', score: 1.0, max_score: 1.0, status: 'passed', feedback: 'Quy đồng mẫu thức và giải phương trình chính xác.' },
+              { criterion_id: 'Q1_C3_KET_LUAN', score: 0.0, max_score: 0.5, status: 'failed', feedback: 'Có tìm ra nghiệm x = 3 nhưng quên đối chiếu với ĐKXĐ.' }
+            ]
+          }
+        ]
+      };
+      renderGradingRecord(demoRecord);
+    }
+
+    async function approveCurrentSubmission() {
+      if (!currentSubmission) {
+        alert('Chưa có bài thi nào đang mở!');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/v1/submissions/review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            submission_id: currentSubmission.submission_id,
+            approve: true,
+            teacher_note: 'Giáo viên đã phê duyệt.'
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          renderGradingRecord(data);
+        }
+      } catch (e) {
+        currentSubmission.status = 'APPROVED';
+        renderGradingRecord(currentSubmission);
+      }
+      alert(`Đã duyệt bài cho học sinh với điểm số: ${(currentSubmission.final_score !== null ? currentSubmission.final_score : currentSubmission.ai_total_score).toFixed(2)}/2.0!`);
+    }
+
+    async function submitTeacherOverride() {
+      if (!currentSubmission) return;
+      const newScore = parseFloat(document.getElementById('input-override-score').value);
+      const note = document.getElementById('input-override-note').value;
+
+      try {
+        const res = await fetch('/api/v1/submissions/review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            submission_id: currentSubmission.submission_id,
+            score_overrides: { 'Q1': newScore },
+            teacher_note: note,
+            approve: true
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          renderGradingRecord(data);
+        }
+      } catch (e) {
+        currentSubmission.final_score = newScore;
+        currentSubmission.status = 'APPROVED';
+        renderGradingRecord(currentSubmission);
+      }
+      closeOverrideModal();
+    }
+
+    // Keyboard Shortcuts
+    window.addEventListener('keydown', (e) => {
+      if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
+        if (e.key === 'Escape') {
+          closeUploadModal();
+          closeOverrideModal();
+          closeApiKeyModal();
+        }
+        return;
+      }
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        approveCurrentSubmission();
+      } else if (e.key === 'a' || e.key === 'A') {
+        e.preventDefault();
+        approveCurrentSubmission();
+      } else if (e.key === 'o' || e.key === 'O') {
+        e.preventDefault();
+        openOverrideModal();
+      } else if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        zoomImage(0.2);
+      } else if (e.key === '-') {
+        e.preventDefault();
+        zoomImage(-0.2);
+      } else if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        resetZoom();
+      } else if (e.key === 'Escape') {
+        closeUploadModal();
+        closeOverrideModal();
+        closeApiKeyModal();
+      }
+    });
+
+    // Init
+    checkApiKeyStatus();
+  </script>
+</body>
+</html>
