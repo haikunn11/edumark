@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from backend.app.models.schemas import (
+    ExamRubric,
     ExtractedQuestion,
     LineType,
     QuestionRubric,
@@ -13,6 +14,96 @@ from backend.app.models.schemas import (
 )
 from backend.app.core.config import settings
 from backend.app.services.math_verifier import verify_question_math
+
+
+def match_student_questions_to_rubric(
+    student_qs: list[ExtractedQuestion],
+    rubric_qs: list[QuestionRubric],
+) -> dict[str, ExtractedQuestion]:
+    """
+    Khớp thông minh danh sách câu hỏi học sinh viết (`a`, `b`, `c`, `Câu 2a`, `Bài 3`...)
+    vào danh sách câu hỏi trong Biểu điểm chuẩn (`Câu 1`, `Câu 2a`, `Câu 2b`, `Câu 3`...).
+    Trả về dict[rubric_question_id -> ExtractedQuestion].
+    """
+    from backend.app.services.folder_reassembler import normalize_question_id
+
+    matched: dict[str, ExtractedQuestion] = {}
+    used_student_indices: set[int] = set()
+
+    # Tầng 1: Khớp chính xác theo nhãn chuẩn hóa (vd "Bài 2a" == "Câu 2a")
+    student_canon = [(idx, normalize_question_id(q.question_id)[1], q) for idx, q in enumerate(student_qs)]
+    for rq in rubric_qs:
+        _, r_lbl = normalize_question_id(rq.question_id)
+        for idx, s_lbl, sq in student_canon:
+            if idx in used_student_indices:
+                continue
+            if s_lbl == r_lbl or sq.question_id.strip().lower() == rq.question_id.strip().lower():
+                matched[rq.question_id] = sq
+                used_student_indices.add(idx)
+                break
+
+    # Tầng 2: Khớp viết tắt chữ cái đơn (vd học sinh ghi "a", "b", "c" cho "Câu 2a", "Câu 2b", "Câu 2c")
+    unmatched_rubrics = [rq for rq in rubric_qs if rq.question_id not in matched]
+    for idx, s_lbl, sq in student_canon:
+        if idx in used_student_indices:
+            continue
+        m_letter = re.fullmatch(r"(?:câu|cau|bài|bai)?\s*([a-z])", sq.question_id.strip(), re.IGNORECASE)
+        if not m_letter:
+            continue
+        sub = m_letter.group(1).lower()
+        candidates = [
+            rq
+            for rq in unmatched_rubrics
+            if rq.question_id not in matched
+            and re.search(rf"\d+\s*{re.escape(sub)}$", rq.question_id.strip(), re.IGNORECASE)
+        ]
+        if len(candidates) == 1:
+            matched[candidates[0].question_id] = sq
+            used_student_indices.add(idx)
+        elif len(candidates) > 1:
+            s_nums = set(re.findall(r"\d+", " ".join(l.raw_text or l.latex for l in sq.lines)))
+            best_rq = max(
+                candidates,
+                key=lambda rq: len(s_nums.intersection(set(re.findall(r"\d+", rq.question_text)))),
+            )
+            matched[best_rq.question_id] = sq
+            used_student_indices.add(idx)
+
+    # Tầng 3: Gom các ý con của học sinh (vd Câu 2a, 2b, 2c) vào câu cha trong Rubric (vd Câu 2)
+    for rq in rubric_qs:
+        if rq.question_id in matched:
+            continue
+        m_parent = re.search(r"(\d+)$", rq.question_id.strip())
+        if not m_parent:
+            continue
+        p_num = m_parent.group(1)
+        child_items = [
+            (idx, sq)
+            for idx, s_lbl, sq in student_canon
+            if idx not in used_student_indices
+            and re.search(rf"(?:câu|bài|q)?\s*{re.escape(p_num)}\s*[a-z]$", s_lbl, re.IGNORECASE)
+        ]
+        if child_items:
+            merged_lines = []
+            merged_srcs: list[str] = []
+            for idx, sq in child_items:
+                used_student_indices.add(idx)
+                for l in sq.lines:
+                    nl = l.model_copy(deep=True)
+                    nl.line_no = len(merged_lines) + 1
+                    nl.line_index = len(merged_lines)
+                    merged_lines.append(nl)
+                for sf in sq.source_files:
+                    if sf not in merged_srcs:
+                        merged_srcs.append(sf)
+            matched[rq.question_id] = ExtractedQuestion(
+                question_id=rq.question_id,
+                question_text=rq.question_text,
+                source_files=merged_srcs,
+                lines=merged_lines,
+            )
+
+    return matched
 
 
 DEFAULT_KEYWORD_PATTERNS: dict[str, str] = {
@@ -303,6 +394,178 @@ TRẢ VỀ JSON HỢP LỆ:
             parsed_results.append(q_res)
 
         return exam_title, parsed_results
+
+    def grade_with_exam_rubric(
+        self,
+        student_qs: list[ExtractedQuestion],
+        exam_rubric: ExamRubric,
+        mv_map: dict[str, MathVerificationSummary] | None = None,
+    ) -> tuple[list[QuestionGradingResult], dict[str, ExtractedQuestion]]:
+        """
+        Chấm toàn bộ bài làm của 1 học sinh theo ĐÚNG 1 Biểu điểm chuẩn cố định (`exam_rubric`).
+        - Khớp thông minh câu viết tắt (`a, b, c` -> `Câu 2a, 2b, 2c`).
+        - Câu học sinh không làm -> 0.0 / max_score (chống chấm phồng thang điểm 10!).
+        - Chấm toàn bộ các câu đã làm trong 1 lượt LLM duy nhất (kèm Đề bài + Đáp án chuẩn + SymPy).
+        """
+        matched_map = match_student_questions_to_rubric(student_qs, exam_rubric.questions)
+        provider = self._active_provider()
+
+        attempted_pairs: list[tuple[QuestionRubric, ExtractedQuestion]] = []
+        for rq in exam_rubric.questions:
+            sq = matched_map.get(rq.question_id)
+            if sq and _active_lines_of(sq):
+                attempted_pairs.append((rq, sq))
+
+        if provider == "mock" or not attempted_pairs:
+            results: list[QuestionGradingResult] = []
+            for rq in exam_rubric.questions:
+                sq = matched_map.get(rq.question_id)
+                if not sq or not _active_lines_of(sq):
+                    results.append(
+                        QuestionGradingResult(
+                            question_id=rq.question_id,
+                            suggested_score=0.0,
+                            earned_points=0.0,
+                            max_score=rq.max_score,
+                            total_points=rq.total_points or rq.max_score,
+                            confidence=1.0,
+                            confidence_level="green",
+                            teacher_summary_comment="Học sinh chưa làm câu này (không tìm thấy trong bài nộp).",
+                        )
+                    )
+                else:
+                    q_mv = mv_map.get(sq.question_id) if mv_map else None
+                    res = self._grade_with_rules(sq, rq, run_self_critique=True, math_verification=q_mv)
+                    res.question_id = rq.question_id
+                    results.append(res)
+            return results, matched_map
+
+        blocks: list[str] = []
+        for rq, sq in attempted_pairs:
+            crits_txt = "\n".join(
+                f"    - [{c.criterion_id}] {c.name} (tối đa {c.max_points or c.max_score}đ): {c.required_logic or c.description}"
+                for c in rq.criteria
+            )
+            lines_txt = "\n".join(
+                f"    Dòng {l.line_no} [{l.line_type.value}]: {l.raw_text or l.latex}"
+                for l in _active_lines_of(sq)
+            )
+            q_mv = mv_map.get(sq.question_id) if mv_map else None
+            sympy_txt = f"\n    [SymPy kiểm chứng]: {q_mv.summary}" if (q_mv and q_mv.equations_checked > 0) else ""
+            blocks.append(
+                f"=== {rq.question_id} (Tối đa: {rq.total_points or rq.max_score}đ) ===\n"
+                f"  ĐỀ BÀI CHUẨN: {rq.question_text}\n"
+                f"  BIỂU ĐIỂM & ĐÁP ÁN CHUẨN:\n{crits_txt}\n"
+                f"  BÀI LÀM HỌC SINH (mã gốc: {sq.question_id}):\n{lines_txt}{sympy_txt}"
+            )
+
+        prompt = f"""Bạn là Giám khảo chấm thi môn Toán THCS/THPT Việt Nam.
+ĐỀ THI CHUẨN: {exam_rubric.title} (Tổng thang điểm cả đề: {exam_rubric.total_points}đ).
+
+Dưới đây là các câu học sinh ĐÃ LÀM kèm Đề bài chuẩn và Biểu điểm chuẩn:
+{chr(10).join(blocks)}
+
+QUY TẮC CHẤM CHUẨN XÁC TUYỆT ĐỐI:
+1. Chấm CHÍNH XÁC theo `ĐỀ BÀI CHUẨN` và `BIỂU ĐIỂM & ĐÁP ÁN CHUẨN` ở trên (KHÔNG tự bịa đề khác, KHÔNG đổi `max_score` của từng câu).
+2. Giữ NGUYÊN `question_id` đúng như trong Biểu điểm chuẩn.
+3. Học sinh giải bằng cách khác hợp lệ nhưng ra đúng kết quả vẫn được trọn điểm.
+4. Nếu có lỗi tính toán ở bước trước nhưng các bước sau vẫn đúng phương pháp -> bảo lưu 50% điểm phương pháp (`"error_propagation_detected": true`).
+5. Mọi công thức Toán đặt trong cặp dấu `$...$`.
+
+TRẢ VỀ JSON HỢP LỆ:
+{{
+  "questions": [
+    {{
+      "question_id": "Câu 2a",
+      "total_points": 1.0,
+      "suggested_score": 1.0,
+      "error_propagation_detected": false,
+      "affected_steps": [],
+      "confidence": 0.96,
+      "confidence_level": "green",
+      "teacher_summary_comment": "<Nhận xét cụ thể theo đúng biểu điểm>",
+      "criteria_evaluations": [
+        {{
+          "criterion_id": "C2A_1",
+          "name": "<Tên tiêu chí>",
+          "score": 0.5,
+          "max_score": 0.5,
+          "status": "passed",
+          "error_type": "none",
+          "feedback": "<Nhận xét>"
+        }}
+      ]
+    }}
+  ]
+}}
+"""
+        if provider == "openai":
+            from openai import OpenAI
+            client = OpenAI(api_key=self.openai_api_key, timeout=45.0)
+            resp = client.chat.completions.create(
+                model=self.openai_model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.0,
+            )
+            usage = getattr(resp, "usage", None)
+            if usage:
+                in_t = int(getattr(usage, "prompt_tokens", 0) or 0)
+                out_t = int(getattr(usage, "completion_tokens", 0) or 0)
+                tot_t = int(getattr(usage, "total_tokens", in_t + out_t) or (in_t + out_t))
+                self.last_usage = {
+                    "provider": "openai",
+                    "model": self.openai_model,
+                    "input_tokens": in_t,
+                    "output_tokens": out_t,
+                    "thinking_tokens": 0,
+                    "total_tokens": tot_t,
+                }
+            data = _extract_json_dict(resp.choices[0].message.content or "")
+        else:
+            data = self._generate_gemini_json(prompt)
+
+        if isinstance(data, list) and len(data) == 1 and isinstance(data[0], dict) and "questions" in data[0]:
+            data = data[0]
+        raw_q_list = data if isinstance(data, list) else data.get("questions", [])
+
+        graded_by_qid: dict[str, QuestionGradingResult] = {}
+        rq_by_qid = {rq.question_id: rq for rq, _ in attempted_pairs}
+        for idx, q_item in enumerate(raw_q_list):
+            if not isinstance(q_item, dict):
+                continue
+            fallback_rq = attempted_pairs[idx][0] if idx < len(attempted_pairs) else None
+            qid = str(q_item.get("question_id") or (fallback_rq.question_id if fallback_rq else f"Câu {idx + 1}"))
+            target_rq = rq_by_qid.get(qid) or fallback_rq
+            if target_rq:
+                q_res = self._parse_rubric_response(q_item, target_rq)
+                graded_by_qid[target_rq.question_id] = q_res
+
+        final_results: list[QuestionGradingResult] = []
+        for rq in exam_rubric.questions:
+            if rq.question_id in graded_by_qid:
+                final_results.append(graded_by_qid[rq.question_id])
+            elif rq.question_id not in matched_map or not _active_lines_of(matched_map[rq.question_id]):
+                final_results.append(
+                    QuestionGradingResult(
+                        question_id=rq.question_id,
+                        suggested_score=0.0,
+                        earned_points=0.0,
+                        max_score=rq.max_score,
+                        total_points=rq.total_points or rq.max_score,
+                        confidence=1.0,
+                        confidence_level="green",
+                        teacher_summary_comment="Học sinh chưa làm câu này (không tìm thấy trong bài nộp).",
+                    )
+                )
+            else:
+                sq = matched_map[rq.question_id]
+                q_mv = mv_map.get(sq.question_id) if mv_map else None
+                res = self._grade_with_rules(sq, rq, run_self_critique=True, math_verification=q_mv)
+                res.question_id = rq.question_id
+                final_results.append(res)
+
+        return final_results, matched_map
 
     def grade_auto_rubric(
         self,

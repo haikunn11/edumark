@@ -9,7 +9,11 @@ from backend.app.core.config import settings
 from backend.app.core.database import db
 from backend.app.models.schemas import (
     ExamRubric,
+    ExtractedLine,
+    ExtractedQuestion,
     ImageQualityReport,
+    LineType,
+    MathVerificationSummary,
     QuestionRubric,
     RubricCriterion,
     SmartFolderBatchResult,
@@ -17,14 +21,19 @@ from backend.app.models.schemas import (
     SubmissionStatus,
     TeacherReviewRequest,
 )
-from backend.app.services.agent1_ocr import OCRApiError, OCRLowConfidenceError
+from backend.app.services.agent1_ocr import OCRApiError, OCRLowConfidenceError, vision_agent
+from backend.app.services.agent2_grader import match_student_questions_to_rubric, reasoning_agent
+from backend.app.services.batch import export_to_excel
 from backend.app.services.folder_reassembler import (
     ALLOWED_IMAGE_EXTS,
     build_sorted_output_folder,
     grade_student_folder,
     load_images_from_local_folder,
+    normalize_question_id,
     zip_sorted_output_folder,
 )
+from backend.app.services.math_verifier import verify_question_math
+from backend.app.services.rubric_builder import extract_rubric_from_files, extract_rubric_from_text
 from backend.app.services.student_clusterer import (
     grade_smart_folder_multistudent,
     zip_directory_recursive,
@@ -37,6 +46,32 @@ class FolderPathGradeRequest(BaseModel):
     folder_path: str
     exam_id: str = "AUTO"
     student_name: str = "Học sinh ẩn danh"
+
+
+class GenerateRubricTextRequest(BaseModel):
+    exam_text: str
+    title: str = ""
+    grade: int = 7
+    total_points: float = 10.0
+    save_immediately: bool = True
+
+
+class RenameStudentRequest(BaseModel):
+    student_name: str
+
+
+class EditedLineInput(BaseModel):
+    line_no: int = 1
+    raw_text: str = ""
+    latex: str = ""
+    line_type: str = "equation"
+    is_strikethrough: bool = False
+
+
+class RegradeQuestionRequest(BaseModel):
+    question_id: str
+    edited_lines: list[EditedLineInput] = []
+    run_reread_ocr: bool = False
 
 router = APIRouter()
 
@@ -310,6 +345,62 @@ def delete_exam(exam_id: str) -> dict:
         )
     EXAM_DB.pop(exam_id, None)
     return {"status": "deleted", "exam_id": exam_id}
+
+
+@router.post("/exams/generate-from-files", response_model=ExamRubric)
+async def generate_exam_rubric_from_files(
+    files: list[UploadFile] = File(...),
+    title: str = Form(""),
+    grade: int = Form(7),
+    total_points: float = Form(10.0),
+    extra_notes: str = Form(""),
+    save_immediately: bool = Form(True),
+) -> ExamRubric:
+    """Chụp / Tải lên ảnh hoặc PDF Đề thi (& Đáp án) -> AI trích xuất thành 1 Biểu điểm chuẩn cố định cho cả lớp."""
+    files_data: list[tuple[str, bytes]] = []
+    for f in files:
+        content = await f.read()
+        _validate_upload_image_or_pdf(f, content)
+        files_data.append((os.path.basename(f.filename or "exam.jpg"), content))
+
+    try:
+        rubric = extract_rubric_from_files(
+            files_data=files_data,
+            title=title,
+            grade=grade,
+            total_points=total_points,
+            extra_notes=extra_notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"error_code": "E001", "message": str(exc)})
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail={"error_code": "E008", "message": f"Không thể trích xuất biểu điểm từ đề thi: {exc}"})
+
+    if save_immediately:
+        db.save_exam(rubric)
+        EXAM_DB[rubric.exam_id] = rubric
+    return rubric
+
+
+@router.post("/exams/generate-from-text", response_model=ExamRubric)
+def generate_exam_rubric_from_text(req: GenerateRubricTextRequest) -> ExamRubric:
+    """Tạo Biểu điểm chuẩn cố định từ văn bản Đề thi / Đáp án do giáo viên dán vào."""
+    try:
+        rubric = extract_rubric_from_text(
+            exam_text=req.exam_text,
+            title=req.title,
+            grade=req.grade,
+            total_points=req.total_points,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"error_code": "E001", "message": str(exc)})
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail={"error_code": "E008", "message": f"Không thể tạo biểu điểm từ văn bản: {exc}"})
+
+    if req.save_immediately:
+        db.save_exam(rubric)
+        EXAM_DB[rubric.exam_id] = rubric
+    return rubric
 
 
 # --- Mobile Pre-Capture Quality Check ---
@@ -587,6 +678,218 @@ def export_smart_batch_zip(batch_id: str):
         media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename=EduMark_Class_{batch_id}.zip"},
     )
+
+
+@router.get("/batches/{batch_id}/export-excel")
+def export_smart_batch_excel(batch_id: str, format_type: str = "standard"):
+    """Xuất lại file Excel bảng điểm mới nhất cho cả lô lớp (sau khi giáo viên sửa tên HS hoặc chấm lại câu)."""
+    if not batch_id.startswith("class_") or any(ch in batch_id for ch in ("/", "\\", "..")):
+        raise HTTPException(status_code=400, detail={"error_code": "E001", "message": "Mã lô không hợp lệ."})
+    records = db.list_submissions_by_prefix(f"{batch_id}_hs")
+    if not records:
+        raise HTTPException(status_code=404, detail={"error_code": "E002", "message": f"Không tìm thấy dữ liệu học sinh của lô {batch_id}."})
+
+    fmt = format_type.lower() if format_type.lower() in ("standard", "vnedu", "smas") else "standard"
+    excel_bytes = export_to_excel(exam_id=records[0].exam_id or "AUTO", records=records, format_type=fmt)
+    return Response(
+        content=excel_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=EduMark_BangDiem_{batch_id}.xlsx"},
+    )
+
+
+@router.patch("/submissions/{submission_id}/student", response_model=SubmissionGradingRecord)
+def rename_submission_student(submission_id: str, req: RenameStudentRequest) -> SubmissionGradingRecord:
+    """Đổi tên học sinh trực tiếp sau khi chấm (cập nhật SQLite & nhãn cụm)."""
+    new_name = (req.student_name or "").strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail={"error_code": "E001", "message": "Tên học sinh không được để trống."})
+    record = db.get_submission(submission_id) or SUBMISSION_DB.get(submission_id)
+    if not record:
+        raise HTTPException(status_code=404, detail={"error_code": "E002", "message": "Không tìm thấy bài thi."})
+
+    record.student_name = new_name
+    record.detected_student_name = new_name
+    if record.folder_reassembly:
+        record.folder_reassembly.cluster_label = new_name
+    db.save_submission(record)
+    SUBMISSION_DB[record.submission_id] = record
+    return record
+
+
+@router.post("/submissions/{submission_id}/regrade-question", response_model=SubmissionGradingRecord)
+def regrade_submission_question(submission_id: str, req: RegradeQuestionRequest) -> SubmissionGradingRecord:
+    """
+    Closed-loop HITL (v0.4.0):
+    Giáo viên sửa chữ viết tay bị OCR nhầm (hoặc bấm Soi lại ảnh gốc bằng 2-Pass OCR) ->
+    hệ thống chạy lại SymPy + chấm lại riêng câu đó + cập nhật tổng điểm vào SQLite.
+    """
+    record = db.get_submission(submission_id) or SUBMISSION_DB.get(submission_id)
+    if not record:
+        raise HTTPException(status_code=404, detail={"error_code": "E002", "message": "Không tìm thấy bài thi."})
+
+    _, req_canon = normalize_question_id(req.question_id)
+    exam_rubric = db.get_exam(record.exam_id) if record.exam_id and record.exam_id != "AUTO" else None
+    rq_match = next(
+        (rq for rq in exam_rubric.questions if rq.question_id == req.question_id or normalize_question_id(rq.question_id)[1] == req_canon),
+        None,
+    ) if exam_rubric else None
+
+    target_q = next(
+        (q for q in record.extracted_questions if q.question_id == req.question_id or normalize_question_id(q.question_id)[1] == req_canon),
+        None,
+    )
+    if not target_q and exam_rubric and rq_match:
+        m = match_student_questions_to_rubric(record.extracted_questions, exam_rubric.questions)
+        target_q = m.get(rq_match.question_id)
+
+    if not target_q:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "E002", "message": f"Không tìm thấy dữ liệu chữ viết tay cho câu '{req.question_id}'."},
+        )
+
+    # 1. Nếu giáo viên bấm "Soi lại ảnh gốc" (2-Pass Forensic OCR)
+    if req.run_reread_ocr and vision_agent.is_live:
+        pages = _discover_submission_page_files(record)
+        img_path = ""
+        if target_q.source_files:
+            src_name = target_q.source_files[0]
+            img_path = next((p[2] for p in pages if p[1] == src_name), "")
+        if not img_path and pages:
+            p_no_hint = target_q.lines[0].page_no if target_q.lines else 1
+            img_path = next((p[2] for p in pages if p[0] == p_no_hint), pages[0][2])
+        if img_path and os.path.isfile(img_path):
+            with open(img_path, "rb") as f:
+                img_bytes = f.read()
+            prev_lines = [l.raw_text or l.latex for l in target_q.lines]
+            cur_q_res = next(
+                (qr for qr in record.question_results if qr.question_id == req.question_id or normalize_question_id(qr.question_id)[1] == req_canon),
+                None,
+            )
+            updated_q, rr_usage = vision_agent.reread_question_from_image(
+                image_bytes=img_bytes,
+                question_id=req.question_id,
+                expected_prompt=rq_match.question_text if rq_match else target_q.question_text,
+                previous_lines=prev_lines,
+                suspected_issue=cur_q_res.teacher_summary_comment if cur_q_res else "",
+            )
+            if updated_q and updated_q.lines:
+                src_label = target_q.source_files[0] if target_q.source_files else ""
+                p_no_keep = target_q.lines[0].page_no if target_q.lines else 1
+                for nl in updated_q.lines:
+                    nl.source_file = src_label
+                    nl.page_no = p_no_keep
+                target_q.lines = updated_q.lines
+                if "2-pass OCR" not in " ".join(target_q.ocr_warnings):
+                    target_q.ocr_warnings.append("2-pass OCR đã soi lại ảnh gốc theo yêu cầu giáo viên")
+                if rr_usage:
+                    record.telemetry.ocr_input_tokens += int(rr_usage.get("input_tokens", 0) or 0)
+                    record.telemetry.ocr_output_tokens += int(rr_usage.get("output_tokens", 0) or 0)
+                    record.telemetry.ocr_total_tokens += int(rr_usage.get("total_tokens", 0) or 0)
+                    record.telemetry.total_tokens += int(rr_usage.get("total_tokens", 0) or 0)
+
+    # 2. Nếu giáo viên trực tiếp sửa từng dòng chữ OCR
+    if req.edited_lines:
+        default_page_no = target_q.lines[0].page_no if target_q.lines else 1
+        default_src = target_q.lines[0].source_file if target_q.lines else (target_q.source_files[0] if target_q.source_files else "")
+        new_lines: list[ExtractedLine] = []
+        for idx, el in enumerate(req.edited_lines):
+            txt = (el.latex or el.raw_text or "").strip()
+            if not txt:
+                continue
+            try:
+                lt = LineType(el.line_type.lower())
+            except ValueError:
+                lt = LineType.EQUATION
+            new_lines.append(
+                ExtractedLine(
+                    line_index=idx,
+                    line_no=el.line_no or (idx + 1),
+                    page_no=default_page_no,
+                    source_file=default_src,
+                    raw_text=el.raw_text or txt,
+                    latex=txt,
+                    raw_latex=txt,
+                    confidence=1.0,
+                    line_type=LineType.SCRATCH if el.is_strikethrough else lt,
+                    unclear=False,
+                    is_strikethrough=bool(el.is_strikethrough or lt == LineType.SCRATCH),
+                )
+            )
+        if new_lines:
+            target_q.lines = new_lines
+            target_q.has_unclear = False
+            target_q.confidence = 1.0
+            target_q.overall_confidence = 1.0
+
+    # 3. Chạy lại SymPy và cập nhật MathVerificationSummary toàn bài
+    q_mv = verify_question_math(target_q)
+    all_eq = all_v = all_inv = 0
+    all_roots: list[str] = []
+    all_issues: list[str] = []
+    for q_item in record.extracted_questions:
+        mv = q_mv if q_item is target_q else verify_question_math(q_item)
+        all_eq += mv.equations_checked
+        all_v += mv.valid_transitions
+        all_inv += mv.invalid_transitions
+        all_roots.extend(mv.detected_roots)
+        all_issues.extend(f"[{q_item.question_id}] {iss}" for iss in mv.issues)
+    record.math_verification = MathVerificationSummary(
+        equations_checked=all_eq,
+        valid_transitions=all_v,
+        invalid_transitions=all_inv,
+        detected_roots=all_roots,
+        issues=all_issues,
+        summary=(
+            f"SymPy kiểm chứng {all_eq} PT: {all_v} bước đúng, {all_inv} bước nghi sai."
+            if all_eq > 0
+            else "Chưa trích xuất được phương trình đại số đơn giản để SymPy kiểm chứng."
+        ),
+    )
+
+    # 4. Chấm lại riêng câu hỏi này
+    existing_idx = next(
+        (i for i, qr in enumerate(record.question_results) if qr.question_id == req.question_id or normalize_question_id(qr.question_id)[1] == req_canon),
+        None,
+    )
+    old_qr = record.question_results[existing_idx] if existing_idx is not None else None
+    reasoning_agent.reset_last_usage()
+
+    if rq_match is not None:
+        new_qr = reasoning_agent.grade_question(
+            target_q,
+            rq_match,
+            run_self_critique=True,
+            use_llm=True,
+            math_verification=q_mv,
+        )
+    else:
+        _, new_qr = reasoning_agent.grade_auto_rubric(target_q, math_verification=q_mv)
+        new_qr.question_id = req.question_id
+        if old_qr:
+            old_max = old_qr.total_points or old_qr.max_score or new_qr.max_score
+            new_qr.max_score = old_max
+            new_qr.total_points = old_max
+            if old_max != 10.0 and new_qr.suggested_score > old_max:
+                new_qr.suggested_score = round(min(old_max, (new_qr.suggested_score / 10.0) * old_max), 2)
+                new_qr.earned_points = new_qr.suggested_score
+
+    if existing_idx is not None:
+        record.question_results[existing_idx] = new_qr
+    else:
+        record.question_results.append(new_qr)
+
+    total_score = round(sum(qr.suggested_score for qr in record.question_results), 2)
+    record.ai_total_score = total_score
+    record.final_score = total_score
+    record.needs_teacher_review = any(qr.needs_review for qr in record.question_results)
+    if record.status == SubmissionStatus.FLAGGED_REVIEW and not record.needs_teacher_review:
+        record.status = SubmissionStatus.GRADED_DRAFT
+
+    db.save_submission(record)
+    SUBMISSION_DB[record.submission_id] = record
+    return record
 
 
 @router.post("/submissions/review", response_model=SubmissionGradingRecord)

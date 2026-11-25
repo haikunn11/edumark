@@ -418,6 +418,164 @@ class VisionOcrAgent:
         self.last_usage = dict(usage_out)
         return qs, usage_out
 
+    def reread_question_from_image(
+        self,
+        image_bytes: bytes,
+        question_id: str,
+        expected_prompt: str = "",
+        previous_lines: list[str] | None = None,
+        suspected_issue: str = "",
+    ) -> tuple[ExtractedQuestion | None, dict]:
+        """
+        2-Pass Targeted OCR Verification (v0.4.0):
+        Soi lại thật kỹ ảnh gốc độ phân giải cao cho RIÊNG 1 câu bị nghi lỗi/điểm thấp
+        để phát hiện các lỗi OCR vi mô (sót `= 1`, nhầm `2 . 250.000` thành `2.250.000`, dấu âm `-`, số mũ).
+        CẤM tự bịa cho đúng nếu học sinh thực sự viết sai!
+        """
+        provider = self._active_provider()
+        usage_out: dict = {
+            "provider": provider,
+            "model": "mock",
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "thinking_tokens": 0,
+            "total_tokens": 0,
+        }
+        if provider == "mock":
+            return None, usage_out
+
+        prev_block = "\n".join(f"  - {ln}" for ln in (previous_lines or [])) or "  (Chưa có)"
+        prompt = f"""Bạn đang thực hiện KIỂM TRA LẠI ẢNH GỐC (2-PASS FORENSIC OCR) cho RIÊNG câu `{question_id}`.
+- Đề bài chuẩn (nếu có): {expected_prompt or '(Không cung cấp)'}
+- Bản OCR lần 1 đọc được:
+{prev_block}
+- Nghi vấn cần soi lại thật kỹ trên ảnh gốc: {suspected_issue or 'Kiểm tra lại từng dấu phép tính và số liệu.'}
+
+QUY TẮC SỐNG CÒN:
+1. Chỉ trích xuất RIÊNG bài làm của câu `{question_id}` trên ảnh này.
+2. Soi cực kỹ: dấu bằng cuối dòng (vd `= 1`, `= 0`), dấu chấm nhân (vd `2 . 250.000` tức `2 \\times 250000` khác với `2.250.000`), dấu âm `-`, phân số, số mũ, dấu ngoặc.
+3. TUYỆT ĐỐI TRUNG THỰC: Chỉ sửa lại nếu ảnh gốc THỰC SỰ viết khác bản OCR lần 1. Nếu học sinh thực sự viết sai trên giấy, PHẢI giữ nguyên đúng cái sai của học sinh!
+4. Bỏ qua các dấu tích/số điểm màu ĐỎ của giáo viên.
+5. Trong JSON, mọi dấu `\\` của LaTeX PHẢI viết thành `\\\\`.
+
+TRẢ VỀ JSON OBJECT HỢP LỆ:
+{{
+  "questions": [
+    {{
+      "question_id": "{question_id}",
+      "question_text": "{expected_prompt}",
+      "lines": [
+        {{"line_no": 1, "raw_text": "...", "latex": "...", "line_type": "equation", "confidence": 0.96, "is_strikethrough": false, "unclear": false}}
+      ]
+    }}
+  ]
+}}
+"""
+        hi_res = _resize_for_vision_api(image_bytes, max_side=2400)
+        try:
+            if provider == "gemini":
+                from google import genai
+                from google.genai import types
+
+                client = genai.Client(api_key=self.api_key)
+                candidates = []
+                for m in ("gemini-3-flash-preview", self.model_name, "gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview"):
+                    if m and m not in candidates:
+                        candidates.append(m)
+
+                raw_text = ""
+                for model_id in candidates:
+                    try:
+                        cfg_kwargs: dict = {
+                            "response_mime_type": "application/json",
+                            "temperature": 0.0,
+                            "max_output_tokens": 4096,
+                        }
+                        try:
+                            cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+                        except Exception:
+                            pass
+                        try:
+                            resp = client.models.generate_content(
+                                model=model_id,
+                                contents=[prompt, types.Part.from_bytes(data=hi_res, mime_type="image/jpeg")],
+                                config=types.GenerateContentConfig(**cfg_kwargs),
+                            )
+                        except Exception as tc_err:
+                            if "thinking" in str(tc_err).lower() and "thinking_config" in cfg_kwargs:
+                                cfg_kwargs.pop("thinking_config", None)
+                                resp = client.models.generate_content(
+                                    model=model_id,
+                                    contents=[prompt, types.Part.from_bytes(data=hi_res, mime_type="image/jpeg")],
+                                    config=types.GenerateContentConfig(**cfg_kwargs),
+                                )
+                            else:
+                                raise
+                        um = getattr(resp, "usage_metadata", None)
+                        if um:
+                            in_t = int(getattr(um, "prompt_token_count", 0) or 0)
+                            out_t = int(getattr(um, "candidates_token_count", 0) or 0)
+                            th_t = int(getattr(um, "thoughts_token_count", 0) or 0)
+                            tot_t = int(getattr(um, "total_token_count", in_t + out_t + th_t) or (in_t + out_t + th_t))
+                            usage_out.update(
+                                {
+                                    "provider": "gemini",
+                                    "model": model_id,
+                                    "input_tokens": in_t,
+                                    "output_tokens": out_t,
+                                    "thinking_tokens": th_t,
+                                    "total_tokens": tot_t,
+                                }
+                            )
+                        raw_text = resp.text or ""
+                        break
+                    except Exception:
+                        continue
+                if not raw_text:
+                    return None, usage_out
+                parsed = parse_and_validate_ocr_json(raw_text)
+                return (parsed[0] if parsed else None), usage_out
+
+            if provider == "openai":
+                import base64
+                from openai import OpenAI
+
+                client = OpenAI(api_key=self.openai_api_key, timeout=45.0)
+                b64 = base64.b64encode(hi_res).decode("utf-8")
+                resp = client.chat.completions.create(
+                    model=self.openai_model,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}},
+                            ],
+                        }
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=0.0,
+                )
+                u = getattr(resp, "usage", None)
+                if u:
+                    in_t = int(getattr(u, "prompt_tokens", 0) or 0)
+                    out_t = int(getattr(u, "completion_tokens", 0) or 0)
+                    usage_out.update(
+                        {
+                            "provider": "openai",
+                            "model": self.openai_model,
+                            "input_tokens": in_t,
+                            "output_tokens": out_t,
+                            "thinking_tokens": 0,
+                            "total_tokens": in_t + out_t,
+                        }
+                    )
+                parsed = parse_and_validate_ocr_json(resp.choices[0].message.content or "")
+                return (parsed[0] if parsed else None), usage_out
+        except Exception as exc:
+            print(f"[Agent 1 2-Pass Warning] Không thể soi lại {question_id}: {exc}")
+        return None, usage_out
+
     def extract_latex_multipage(
         self,
         pages_bytes: list[bytes],

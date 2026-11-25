@@ -368,31 +368,11 @@ def grade_student_folder(
             mv_map=mv_map,
         )
     else:
-        # Khớp chuẩn hóa question_id giữa Barem và câu đã gom
-        canon_map = {normalize_question_id(q.question_id)[1]: q for q in reassembled_questions}
-        for q_rubric in rubric.questions:
-            _, r_label = normalize_question_id(q_rubric.question_id)
-            matched_q = canon_map.get(r_label)
-            if not matched_q and len(rubric.questions) == 1 and len(reassembled_questions) == 1:
-                matched_q = reassembled_questions[0]
-            if not matched_q:
-                q_res = QuestionGradingResult(
-                    question_id=q_rubric.question_id,
-                    suggested_score=0.0,
-                    max_score=q_rubric.max_score,
-                    total_points=q_rubric.total_points or q_rubric.max_score,
-                    self_critique_applied=True,
-                    needs_review=False,
-                    teacher_summary_comment="Học sinh không làm câu này trong folder bài nộp.",
-                )
-            else:
-                q_res = reasoning_agent.grade_question(
-                    question=matched_q,
-                    rubric=q_rubric,
-                    run_self_critique=True,
-                    math_verification=mv_map.get(matched_q.question_id),
-                )
-            question_results.append(q_res)
+        question_results, _ = reasoning_agent.grade_with_exam_rubric(
+            reassembled_questions,
+            rubric,
+            mv_map=mv_map,
+        )
 
     grading_ms = int(round((time.perf_counter() - t_grade_start) * 1000))
     grader_usage = dict(getattr(reasoning_agent, "last_usage", {}))

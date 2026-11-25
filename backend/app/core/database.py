@@ -155,6 +155,15 @@ class EduMarkDatabase:
             ).fetchall()
         return [SubmissionGradingRecord.model_validate_json(r["payload_json"]) for r in rows]
 
+    def list_submissions_by_prefix(self, prefix: str, limit: int = 200) -> list[SubmissionGradingRecord]:
+        """Lấy toàn bộ bài nộp thuộc một lô (vd `class_03b17874_hs%`) theo thứ tự submission_id."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT payload_json FROM submissions WHERE submission_id LIKE ? ORDER BY submission_id ASC LIMIT ?",
+                (f"{prefix}%", max(1, min(limit, 500))),
+            ).fetchall()
+        return [SubmissionGradingRecord.model_validate_json(r["payload_json"]) for r in rows]
+
     # --- Batch Jobs ---
     def save_batch_job(self, job_dict: dict) -> None:
         payload = json.dumps(job_dict, ensure_ascii=False)

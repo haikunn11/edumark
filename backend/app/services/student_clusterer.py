@@ -368,41 +368,100 @@ def grade_smart_folder_multistudent(
             ),
         )
 
-        # Agent 2 chấm riêng bài học sinh này
+        # Agent 2 chấm riêng bài học sinh này (Ưu tiên Biểu điểm chuẩn cố định nếu giáo viên đã chọn đề)
         t_g0 = time.perf_counter()
         reasoning_agent.reset_last_usage()
         q_results: list[QuestionGradingResult] = []
+        matched_rubric_map: dict[str, ExtractedQuestion] = {}
         exam_title = rubric.title
-        if rubric.exam_id == "AUTO" or not rubric.questions:
+        is_fixed_rubric = rubric.exam_id != "AUTO" and bool(rubric.questions)
+        if not is_fixed_rubric:
             exam_title, q_results = reasoning_agent.grade_auto_rubric_multi(reassembled_qs, mv_map=mv_map)
         else:
-            canon_map = {normalize_question_id(q.question_id)[1]: q for q in reassembled_qs}
-            for q_rubric in rubric.questions:
-                _, r_lbl = normalize_question_id(q_rubric.question_id)
-                mq = canon_map.get(r_lbl)
-                if not mq:
-                    q_results.append(
-                        QuestionGradingResult(
-                            question_id=q_rubric.question_id,
-                            suggested_score=0.0,
-                            max_score=q_rubric.max_score,
-                            total_points=q_rubric.total_points or q_rubric.max_score,
-                            teacher_summary_comment="Học sinh không làm câu này.",
-                        )
+            q_results, matched_rubric_map = reasoning_agent.grade_with_exam_rubric(reassembled_qs, rubric, mv_map=mv_map)
+
+        # Lưu usage lần chấm đầu
+        g_usage_first = dict(getattr(reasoning_agent, "last_usage", {}))
+        reread_grd_in = reread_grd_out = reread_grd_th = reread_grd_tot = 0
+
+        # --- BƯỚC 4b: 2-Pass Forensic OCR Re-Read (tối đa 2 câu nghi sai / học sinh khi dùng Live Key) ---
+        reread_ocr_in = reread_ocr_out = reread_ocr_th = reread_ocr_tot = 0
+        if is_live_key and q_results:
+            page_by_fname = {p.filename: p for p in cl_pages}
+            rq_by_id = {rq.question_id: rq for rq in rubric.questions} if is_fixed_rubric else {}
+            reread_count = 0
+            for q_idx, q_res in enumerate(q_results):
+                if reread_count >= 2:
+                    break
+                sq = matched_rubric_map.get(q_res.question_id) if is_fixed_rubric else next(
+                    (q for q in reassembled_qs if q.question_id == q_res.question_id), None
+                )
+                if not sq or not sq.lines or not sq.source_files:
+                    continue
+                q_mv = mv_map.get(sq.question_id)
+                has_issue = (
+                    (q_mv is not None and q_mv.invalid_transitions > 0)
+                    or (
+                        q_res.suggested_score < (q_res.max_score or q_res.total_points or 1.0)
+                        and any(c.status in ("failed", "partial") for c in q_res.criteria_evaluations)
                     )
-                else:
-                    q_results.append(
-                        reasoning_agent.grade_question(mq, q_rubric, run_self_critique=True, math_verification=mv_map.get(mq.question_id))
-                    )
+                )
+                if not has_issue:
+                    continue
+                src_page = page_by_fname.get(sq.source_files[0])
+                if not src_page:
+                    continue
+
+                reread_count += 1
+                expected_prompt = rq_by_id[q_res.question_id].question_text if q_res.question_id in rq_by_id else sq.question_text
+                prev_lines = [l.raw_text or l.latex for l in sq.lines]
+                updated_q, rr_usage = vision_agent.reread_question_from_image(
+                    image_bytes=src_page.proc_bytes,
+                    question_id=q_res.question_id,
+                    expected_prompt=expected_prompt,
+                    previous_lines=prev_lines,
+                    suspected_issue=q_res.teacher_summary_comment,
+                )
+                reread_ocr_in += int(rr_usage.get("input_tokens", 0) or 0)
+                reread_ocr_out += int(rr_usage.get("output_tokens", 0) or 0)
+                reread_ocr_th += int(rr_usage.get("thinking_tokens", 0) or 0)
+                reread_ocr_tot += int(rr_usage.get("total_tokens", 0) or 0)
+
+                if updated_q and updated_q.lines:
+                    old_sig = re.sub(r"\s+", "", "".join(prev_lines))
+                    new_sig = re.sub(r"\s+", "", "".join(l.raw_text or l.latex for l in updated_q.lines))
+                    if new_sig and new_sig != old_sig:
+                        for nl in updated_q.lines:
+                            nl.source_file = sq.source_files[0]
+                        sq.lines = updated_q.lines
+                        sq.ocr_warnings.append("2-pass OCR đã soi lại ảnh gốc và hiệu chỉnh nét chữ")
+                        new_mv = verify_question_math(sq)
+                        mv_map[sq.question_id] = new_mv
+                        reasoning_agent.reset_last_usage()
+                        if is_fixed_rubric and q_res.question_id in rq_by_id:
+                            q_results[q_idx] = reasoning_agent.grade_question(
+                                sq, rq_by_id[q_res.question_id], run_self_critique=True, use_llm=True, math_verification=new_mv
+                            )
+                        else:
+                            _, new_res = reasoning_agent.grade_auto_rubric(sq, math_verification=new_mv)
+                            new_res.question_id = q_res.question_id
+                            new_res.max_score = q_res.max_score
+                            new_res.total_points = q_res.total_points
+                            q_results[q_idx] = new_res
+                        rr_g = dict(getattr(reasoning_agent, "last_usage", {}))
+                        reread_grd_in += int(rr_g.get("input_tokens", 0) or 0)
+                        reread_grd_out += int(rr_g.get("output_tokens", 0) or 0)
+                        reread_grd_th += int(rr_g.get("thinking_tokens", 0) or 0)
+                        reread_grd_tot += int(rr_g.get("total_tokens", 0) or 0)
+
         s_grade_ms = int(round((time.perf_counter() - t_g0) * 1000))
         t_grade_total += s_grade_ms
 
-        g_usage = dict(getattr(reasoning_agent, "last_usage", {}))
-        g_in = int(g_usage.get("input_tokens", 0) or 0)
-        g_out = int(g_usage.get("output_tokens", 0) or 0)
-        g_th = int(g_usage.get("thinking_tokens", 0) or 0)
-        g_tot = int(g_usage.get("total_tokens", g_in + g_out + g_th) or 0)
-        g_model = str(g_usage.get("model", "rule-based"))
+        g_in = int(g_usage_first.get("input_tokens", 0) or 0) + reread_grd_in
+        g_out = int(g_usage_first.get("output_tokens", 0) or 0) + reread_grd_out
+        g_th = int(g_usage_first.get("thinking_tokens", 0) or 0) + reread_grd_th
+        g_tot = int(g_usage_first.get("total_tokens", 0) or 0) + reread_grd_tot
+        g_model = str(g_usage_first.get("model", "rule-based"))
         total_grd_in += g_in
         total_grd_out += g_out
         total_grd_th += g_th
@@ -410,10 +469,10 @@ def grade_smart_folder_multistudent(
         if g_model != "rule-based":
             last_grd_model = g_model
 
-        s_ocr_in = sum(int(p.ocr_usage.get("input_tokens", 0) or 0) for p in cl_pages)
-        s_ocr_out = sum(int(p.ocr_usage.get("output_tokens", 0) or 0) for p in cl_pages)
-        s_ocr_th = sum(int(p.ocr_usage.get("thinking_tokens", 0) or 0) for p in cl_pages)
-        s_ocr_tot = sum(int(p.ocr_usage.get("total_tokens", 0) or 0) for p in cl_pages)
+        s_ocr_in = sum(int(p.ocr_usage.get("input_tokens", 0) or 0) for p in cl_pages) + reread_ocr_in
+        s_ocr_out = sum(int(p.ocr_usage.get("output_tokens", 0) or 0) for p in cl_pages) + reread_ocr_out
+        s_ocr_th = sum(int(p.ocr_usage.get("thinking_tokens", 0) or 0) for p in cl_pages) + reread_ocr_th
+        s_ocr_tot = sum(int(p.ocr_usage.get("total_tokens", 0) or 0) for p in cl_pages) + reread_ocr_tot
         s_ocr_model = next((str(p.ocr_usage.get("model")) for p in cl_pages if p.ocr_usage.get("model") not in ("", None, "cache")), "mock")
         s_cost_usd = _estimate_cost_usd(s_ocr_model, s_ocr_in, s_ocr_out + s_ocr_th) + _estimate_cost_usd(g_model, g_in, g_out + g_th)
 
@@ -505,10 +564,11 @@ def grade_smart_folder_multistudent(
         with open(excel_path, "wb") as f:
             f.write(excel_bytes)
 
-    total_ocr_in = sum(int(p.ocr_usage.get("input_tokens", 0) or 0) for p in page_profiles)
-    total_ocr_out = sum(int(p.ocr_usage.get("output_tokens", 0) or 0) for p in page_profiles)
-    total_ocr_th = sum(int(p.ocr_usage.get("thinking_tokens", 0) or 0) for p in page_profiles)
-    total_ocr_tot = sum(int(p.ocr_usage.get("total_tokens", 0) or 0) for p in page_profiles)
+    total_ocr_in = sum(int(p.ocr_usage.get("input_tokens", 0) or 0) for p in page_profiles) + sum(r.telemetry.ocr_input_tokens for r in student_records if False)
+    total_ocr_in = sum(r.telemetry.ocr_input_tokens for r in student_records)
+    total_ocr_out = sum(r.telemetry.ocr_output_tokens for r in student_records)
+    total_ocr_th = sum(r.telemetry.ocr_thinking_tokens for r in student_records)
+    total_ocr_tot = sum(r.telemetry.ocr_total_tokens for r in student_records)
     ocr_model_top = next((str(p.ocr_usage.get("model")) for p in page_profiles if p.ocr_usage.get("model") not in ("", None, "cache")), "mock")
 
     total_ms = int(round((time.perf_counter() - t_total_start) * 1000))
