@@ -100,3 +100,21 @@ def test_overall_confidence_calculation():
     questions = parse_and_validate_ocr_json(raw)
     assert questions[0].overall_confidence == 0.7
     assert questions[0].confidence == 0.7
+
+
+def test_parser_latex_backslash_escape_resilience():
+    """Sửa lỗi Invalid \\escape khi LLM trộn lẫn \\\\Rightarrow hợp lệ và \\underline / \\frac / \\{ đơn lẻ."""
+    raw = (
+        '{"questions": [{"question_id": "Câu 1", "lines": ['
+        '{"raw_text": "\\\\Rightarrow \\underline{x} = \\frac{1}{2} \\neq 0 \\begin{cases} a=1 \\\\ b=2 \\end{cases}", '
+        '"latex": "\\\\Rightarrow \\underline{x} = \\frac{1}{2} \\neq 0", '
+        '"line_type": "equation", "confidence": 0.95}'
+        ']}]}'
+    )
+    questions = parse_and_validate_ocr_json(raw)
+    assert len(questions) == 1
+    assert r"\Rightarrow" in questions[0].lines[0].latex
+    assert r"\underline{x}" in questions[0].lines[0].latex
+    assert r"\frac{1}{2}" in questions[0].lines[0].latex
+    assert r"\neq" in questions[0].lines[0].latex
+

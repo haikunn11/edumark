@@ -105,6 +105,14 @@
         <i class="fa-solid fa-cloud-arrow-up"></i> <span>Tải bài thi</span>
       </button>
 
+      <button onclick="openFolderModal()" class="bg-sky-600 hover:bg-sky-500 text-white text-xs px-3 py-2 rounded-lg font-medium transition flex items-center gap-1.5 shadow">
+        <i class="fa-solid fa-folder-open"></i> <span>Chấm Folder</span>
+      </button>
+
+      <button onclick="openHistoryModal()" class="bg-slate-700 hover:bg-slate-600 text-slate-100 text-xs px-3 py-2 rounded-lg font-medium transition flex items-center gap-1.5 border border-slate-600">
+        <i class="fa-solid fa-clock-rotate-left text-indigo-300"></i> <span>Lịch sử</span>
+      </button>
+
       <button onclick="openOverrideModal()" id="btn-override" class="bg-amber-600 hover:bg-amber-500 text-white text-xs px-3 py-2 rounded-lg font-medium transition flex items-center gap-1.5 shadow">
         <i class="fa-solid fa-pen-to-square"></i> <span>Sửa điểm (O)</span>
       </button>
@@ -134,10 +142,11 @@
       
       <!-- Image Toolbar -->
       <div class="bg-slate-900/90 backdrop-blur-sm border-b border-slate-800 px-4 py-2 flex items-center justify-between text-xs text-slate-400 z-10">
-        <div class="flex items-center gap-2">
-          <span class="font-bold text-slate-300 uppercase tracking-wider text-[11px]"><i class="fa-solid fa-image text-indigo-400 mr-1.5"></i>Bài thi học sinh</span>
-          <span id="blur-warning" class="hidden bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded text-[10px] font-semibold"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Ảnh bị mờ</span>
-          <span id="loading-pill" class="hidden bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded text-[10px] font-semibold"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Đang phân tích AI...</span>
+        <div class="flex items-center gap-2 overflow-hidden">
+          <span class="font-bold text-slate-300 uppercase tracking-wider text-[11px] shrink-0"><i class="fa-solid fa-image text-indigo-400 mr-1.5"></i>Bài thi học sinh</span>
+          <span id="active-page-pill" class="hidden bg-sky-500/20 text-sky-200 border border-sky-500/40 px-2 py-0.5 rounded text-[10px] font-mono truncate max-w-[300px]">Ảnh 1/1</span>
+          <span id="blur-warning" class="hidden bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded text-[10px] font-semibold shrink-0"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Ảnh bị mờ</span>
+          <span id="loading-pill" class="hidden bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded text-[10px] font-semibold shrink-0"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Đang phân tích AI...</span>
         </div>
 
         <!-- Zoom Controls -->
@@ -161,17 +170,23 @@
             </div>
             <h3 class="text-sm font-semibold text-slate-200 mb-1">Kéo thả ảnh bài thi viết tay vào đây</h3>
             <p class="text-xs text-slate-400 mb-4 leading-relaxed">Hỗ trợ ảnh chụp điện thoại (JPEG, PNG) hoặc tài liệu PDF.<br><span class="text-indigo-400 font-medium">Hệ thống sẽ tự nắn thẳng, khử mờ và chấm điểm.</span></p>
-            <div class="flex items-center justify-center gap-2 pointer-events-auto">
-              <button onclick="openUploadModal()" class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-1.5 rounded-lg transition font-medium shadow">
-                <i class="fa-solid fa-cloud-arrow-up mr-1"></i> Chọn tệp từ máy
+            <div class="flex items-center justify-center gap-2 pointer-events-auto flex-wrap">
+              <button onclick="openFolderModal()" class="text-xs bg-sky-600 hover:bg-sky-500 text-white px-3.5 py-1.5 rounded-lg transition font-medium shadow">
+                <i class="fa-solid fa-folder-open mr-1"></i> Chấm cả Folder
               </button>
-              <button onclick="runDefaultDemo()" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg transition">
-                <i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Bài thi mẫu
+              <button onclick="openUploadModal()" class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-1.5 rounded-lg transition font-medium shadow">
+                <i class="fa-solid fa-cloud-arrow-up mr-1"></i> Chọn 1 tệp
+              </button>
+              <button onclick="openHistoryModal()" class="text-xs bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 px-3 py-1.5 rounded-lg transition">
+                <i class="fa-solid fa-clock-rotate-left mr-1"></i> Mở bài vừa chấm
               </button>
             </div>
           </div>
         </div>
       </div>
+
+      <!-- Multi-Page Filmstrip (Bấm từng ảnh để đối soát 1-1 với chữ AI đọc bên phải) -->
+      <div id="page-filmstrip" class="hidden bg-slate-900/95 border-t border-slate-800 px-3 py-2 flex items-center gap-2 overflow-x-auto custom-scrollbar z-10"></div>
 
       <!-- Navigation & Shortcuts Info Footer -->
       <div class="bg-slate-900 border-t border-slate-800 px-4 py-2 flex items-center justify-between text-[11px] text-slate-500">
@@ -205,6 +220,24 @@
           </button>
         </div>
 
+        <!-- Multi-Student Smart Folder Switcher Bar (hiện khi chấm folder có nhiều học sinh) -->
+        <div id="class-batch-bar" class="hidden bg-gradient-to-br from-emerald-950/50 to-slate-900 border border-emerald-600/50 rounded-xl p-3.5 mb-4 space-y-2.5 shadow">
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <div class="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                <i class="fa-solid fa-users-viewfinder"></i>
+                <span id="class-batch-title">Đã tự tách 0 học sinh từ Folder</span>
+              </div>
+              <p id="class-batch-meta" class="text-[10px] font-mono text-slate-300 mt-0.5"></p>
+              <p id="class-batch-folder" class="text-[10px] font-mono text-emerald-300/90 mt-0.5 truncate max-w-[320px]"></p>
+            </div>
+            <a id="btn-download-class-zip" href="#" class="shrink-0 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center gap-1.5 shadow">
+              <i class="fa-solid fa-file-zipper"></i> Tải Folder lớp (.zip)
+            </a>
+          </div>
+          <div id="class-student-pills" class="flex flex-wrap gap-1.5"></div>
+        </div>
+
         <!-- Score Overview Card -->
         <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-4 mb-4 shadow-sm">
           <div class="flex items-center justify-between mb-2">
@@ -229,43 +262,157 @@
               Học sinh tính toán sai ở bước biến đổi nhưng bước sau vẫn vận dụng đúng phương pháp. Hệ thống đã tự động bảo lưu điểm phương pháp!
             </p>
           </div>
-        </div>
 
-        <!-- Rubric Step-by-Step Breakdown List -->
-        <div class="mb-4">
-          <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center justify-between">
-            <span>Chi tiết từng tiêu chí chấm</span>
-            <span class="text-[11px] text-slate-500 font-normal">Tự động so khớp barem</span>
-          </h3>
-          <div class="space-y-2.5 max-h-[360px] overflow-y-auto custom-scrollbar pr-1" id="criteria-list">
-            <div class="text-center py-8 text-xs text-slate-500 italic">
-              Chưa có kết quả. Kéo thả ảnh hoặc chọn bài thi để chấm.
+          <!-- SymPy Math Verification Banner -->
+          <div id="sympy-banner" class="hidden mt-2.5 p-2.5 rounded-lg text-[11px] border"></div>
+
+          <!-- Performance & Token Telemetry Panel -->
+          <div id="telemetry-panel" class="hidden mt-3 bg-slate-900/90 border border-slate-700/80 rounded-lg p-3 text-[11px] font-mono space-y-2">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-1.5">
+              <span class="text-indigo-300 font-bold flex items-center gap-1.5">
+                <i class="fa-solid fa-gauge-high text-indigo-400"></i> ĐO HIỆU NĂNG & TOKENS
+              </span>
+              <span id="tel-cost" class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold">~0đ</span>
+            </div>
+            <div class="grid grid-cols-5 gap-1.5 text-center">
+              <div class="bg-slate-800/80 rounded p-1.5 border border-slate-700/60">
+                <div class="text-[9px] text-slate-400 uppercase">Tổng TG</div>
+                <div id="tel-total-s" class="text-xs font-bold text-amber-300">0.00s</div>
+              </div>
+              <div class="bg-slate-800/80 rounded p-1.5 border border-slate-700/60">
+                <div class="text-[9px] text-slate-400 uppercase">Xử lý ảnh</div>
+                <div id="tel-pre-ms" class="text-[11px] font-semibold text-slate-200">0ms</div>
+              </div>
+              <div class="bg-slate-800/80 rounded p-1.5 border border-slate-700/60">
+                <div class="text-[9px] text-slate-400 uppercase">Agent 1 OCR</div>
+                <div id="tel-ocr-s" class="text-[11px] font-semibold text-sky-300">0.00s</div>
+              </div>
+              <div class="bg-slate-800/80 rounded p-1.5 border border-slate-700/60">
+                <div class="text-[9px] text-slate-400 uppercase">SymPy</div>
+                <div id="tel-sympy-ms" class="text-[11px] font-semibold text-emerald-300">0ms</div>
+              </div>
+              <div class="bg-slate-800/80 rounded p-1.5 border border-slate-700/60">
+                <div class="text-[9px] text-slate-400 uppercase">Agent 2 Chấm</div>
+                <div id="tel-grade-s" class="text-[11px] font-semibold text-violet-300">0.00s</div>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-[10px] text-slate-300 bg-slate-950/60 rounded p-2 border border-slate-800">
+              <div>
+                <div class="text-slate-400">Agent 1 OCR (<span id="tel-ocr-model" class="text-sky-300">—</span>)</div>
+                <div id="tel-ocr-tokens">In: 0 · Out: 0 · Think: 0</div>
+              </div>
+              <div>
+                <div class="text-slate-400">Agent 2 Chấm (<span id="tel-grade-model" class="text-violet-300">—</span>)</div>
+                <div id="tel-grade-tokens">In: 0 · Out: 0 · Think: 0</div>
+              </div>
+            </div>
+            <div class="flex items-center justify-between text-[10px] text-slate-400">
+              <span id="tel-total-tokens" class="text-slate-200 font-semibold">Tổng: 0 tokens</span>
+              <span id="tel-cost-usd">$0.000000 USD</span>
+            </div>
+          </div>
+
+          <!-- Folder Reassembly Report Banner -->
+          <div id="reassembly-banner" class="hidden mt-3 bg-sky-950/50 border border-sky-700/60 rounded-lg p-3 text-[11px] text-sky-200 space-y-1.5">
+            <div class="font-bold flex items-center justify-between text-sky-300">
+              <span><i class="fa-solid fa-arrow-down-1-9 mr-1.5"></i> TỰ ĐỘNG SẮP XẾP & GHÉP CÂU TỪ FOLDER</span>
+              <span id="reassembly-badge" class="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/20 border border-sky-500/40 font-mono">0 ảnh</span>
+            </div>
+            <p id="reassembly-summary" class="text-[11px] text-sky-200/90"></p>
+            <div id="reassembly-chips" class="flex flex-wrap gap-1.5 pt-1"></div>
+            <div id="reassembly-output-row" class="hidden pt-2 mt-1 border-t border-sky-800/60 flex items-center justify-between gap-2">
+              <div class="min-w-0">
+                <div class="text-[10px] text-slate-400">📂 Folder đầu ra đã sắp xếp trên máy:</div>
+                <div id="reassembly-output-path" class="text-[10px] font-mono text-emerald-300 truncate"></div>
+              </div>
+              <a id="btn-download-sorted-zip" href="#" class="shrink-0 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold flex items-center gap-1 shadow">
+                <i class="fa-solid fa-file-zipper"></i> Tải Folder (.zip)
+              </a>
             </div>
           </div>
         </div>
 
-        <!-- Extracted OCR Lines Accordion (Chi tiết nét chữ đọc được) -->
-        <div class="mb-4 bg-slate-800/40 border border-slate-700/80 rounded-xl p-3">
-          <details class="cursor-pointer" open>
-            <summary class="text-xs font-semibold text-slate-400 hover:text-slate-200 flex items-center justify-between">
-              <span><i class="fa-solid fa-lines-leaning mr-1.5 text-indigo-400"></i> Văn bản & LaTeX AI đọc từ ảnh (<span id="ocr-line-count">0</span> dòng)</span>
-              <i class="fa-solid fa-chevron-down text-[10px]"></i>
-            </summary>
-            <div id="ocr-lines-container" class="mt-2.5 space-y-1.5 max-h-[220px] overflow-y-auto custom-scrollbar text-xs font-mono text-slate-300 pr-1">
-              <div class="text-slate-500 italic text-[11px]">Chưa có dữ liệu OCR.</div>
-            </div>
-          </details>
+        <!-- 3 Verification Workspace Tabs -->
+        <div class="grid grid-cols-3 gap-1.5 mb-4 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
+          <button id="rtab-btn-verify" onclick="switchRightTab('verify')" class="py-2 px-2 rounded-lg text-[11px] font-bold bg-indigo-600 text-white transition flex items-center justify-center gap-1">
+            <i class="fa-solid fa-eye"></i> <span>Đối soát Ảnh↔Chữ</span>
+          </button>
+          <button id="rtab-btn-score" onclick="switchRightTab('score')" class="py-2 px-2 rounded-lg text-[11px] font-semibold text-slate-400 hover:text-white transition flex items-center justify-center gap-1">
+            <i class="fa-solid fa-list-check"></i> <span>Điểm từng Câu</span>
+          </button>
+          <button id="rtab-btn-matrix" onclick="switchRightTab('matrix')" class="py-2 px-2 rounded-lg text-[11px] font-semibold text-slate-400 hover:text-white transition flex items-center justify-center gap-1">
+            <i class="fa-solid fa-table-cells"></i> <span>Ma trận & Đo</span>
+          </button>
         </div>
 
-        <!-- AI Pedagogical Feedback Box -->
-        <div class="bg-slate-800/50 border border-slate-700/80 rounded-xl p-4">
-          <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5 flex items-center gap-1.5">
-            <i class="fa-solid fa-comment-dots text-indigo-400"></i> Lời phê sư phạm AI tự sinh:
-          </label>
-          <div class="max-h-[110px] overflow-y-auto custom-scrollbar pr-1">
-            <p class="text-xs text-slate-300 leading-relaxed italic" id="ai-feedback-box">
-              "Vui lòng tải ảnh bài thi để AI phân tích và tạo nhận xét."
-            </p>
+        <!-- TAB 1: 1-to-1 Image <-> Extracted Text Verification -->
+        <div id="rtab-verify" class="space-y-3 mb-4">
+          <div id="duplicate-q-warning" class="hidden bg-amber-950/50 border border-amber-600/60 rounded-xl p-3 text-[11px] text-amber-200 leading-relaxed"></div>
+
+          <div class="flex items-center justify-between gap-2 bg-slate-800/60 border border-slate-700/80 rounded-xl px-3 py-2">
+            <div class="text-[11px] text-slate-300 font-semibold truncate" id="verify-scope-label">
+              <i class="fa-solid fa-magnifying-glass text-sky-400 mr-1"></i> Chưa có ảnh nào được chọn
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <button id="btn-toggle-scope" onclick="toggleVerifyScope()" class="text-[10px] px-2 py-1 rounded bg-sky-600/30 hover:bg-sky-600/50 text-sky-200 border border-sky-500/40 font-semibold">
+                Chỉ xem Ảnh đang chọn
+              </button>
+              <button id="btn-toggle-raw" onclick="toggleRawTextMode()" class="text-[10px] px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 border border-slate-600 font-mono">
+                Raw: Tắt
+              </button>
+            </div>
+          </div>
+
+          <div id="verify-ocr-groups" class="space-y-2.5 max-h-[520px] overflow-y-auto custom-scrollbar pr-1">
+            <div class="text-center py-8 text-xs text-slate-500 italic bg-slate-800/30 rounded-xl border border-slate-800">
+              Chấm 1 bài hoặc bấm <strong>📜 Lịch sử</strong> để mở lại bài vừa chấm và đối soát từng ảnh 1-1!
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: Per-Question Grading Breakdown -->
+        <div id="rtab-score" class="hidden space-y-3 mb-4">
+          <div class="space-y-3 max-h-[520px] overflow-y-auto custom-scrollbar pr-1" id="criteria-list">
+            <div class="text-center py-8 text-xs text-slate-500 italic">
+              Chưa có kết quả. Kéo thả ảnh hoặc chọn Folder bài thi để chấm.
+            </div>
+          </div>
+
+          <!-- AI Pedagogical Feedback Box -->
+          <div class="bg-slate-800/50 border border-slate-700/80 rounded-xl p-3.5">
+            <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5 flex items-center gap-1.5">
+              <i class="fa-solid fa-comment-dots text-indigo-400"></i> Nhận xét tổng hợp toàn bài:
+            </label>
+            <div class="max-h-[110px] overflow-y-auto custom-scrollbar pr-1">
+              <p class="text-xs text-slate-300 leading-relaxed italic" id="ai-feedback-box">
+                "Vui lòng tải ảnh bài thi để AI phân tích và tạo nhận xét."
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: Verification Matrix (File <-> Question) & Full OCR Accordion -->
+        <div id="rtab-matrix" class="hidden space-y-3 mb-4">
+          <div class="bg-slate-800/50 border border-slate-700/80 rounded-xl p-3">
+            <h4 class="text-[11px] font-bold uppercase tracking-wider text-sky-300 mb-2 flex items-center justify-between">
+              <span><i class="fa-solid fa-diagram-project mr-1.5"></i> Bảng Đối Chiếu: Ảnh Gốc → AI Tách Câu</span>
+              <span id="matrix-page-count" class="text-[10px] font-mono text-slate-400">0 ảnh</span>
+            </h4>
+            <div id="page-question-matrix" class="space-y-1.5 text-[11px]">
+              <div class="text-slate-500 italic">Chưa có dữ liệu đối chiếu.</div>
+            </div>
+          </div>
+
+          <div class="bg-slate-800/40 border border-slate-700/80 rounded-xl p-3">
+            <details class="cursor-pointer">
+              <summary class="text-xs font-semibold text-slate-400 hover:text-slate-200 flex items-center justify-between">
+                <span><i class="fa-solid fa-lines-leaning mr-1.5 text-indigo-400"></i> Toàn bộ dòng OCR gộp (<span id="ocr-line-count">0</span> dòng)</span>
+                <i class="fa-solid fa-chevron-down text-[10px]"></i>
+              </summary>
+              <div id="ocr-lines-container" class="mt-2.5 space-y-1.5 max-h-[260px] overflow-y-auto custom-scrollbar text-xs font-mono text-slate-300 pr-1">
+                <div class="text-slate-500 italic text-[11px]">Chưa có dữ liệu OCR.</div>
+              </div>
+            </details>
           </div>
         </div>
       </div>
@@ -284,6 +431,101 @@
       </div>
     </section>
   </main>
+
+  <!-- History Modal (Mở lại các bài đã chấm lưu trong SQLite, không cần tốn API chấm lại) -->
+  <div id="history-modal" class="hidden fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-xl w-full p-6 shadow-2xl">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-clock-rotate-left text-indigo-400"></i> Lịch sử bài đã chấm (SQLite — bấm để mở đối soát lại)
+        </h3>
+        <button onclick="closeHistoryModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="history-modal-list" class="space-y-2 max-h-[420px] overflow-y-auto custom-scrollbar pr-1 text-xs">
+        <div class="text-slate-400 text-center py-6">Đang tải danh sách...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Folder Grading Modal (Chế độ A: 1 Folder = 1 HS nhiều ảnh lộn câu) -->
+  <div id="folder-modal" class="hidden fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-lg w-full p-6 shadow-2xl">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-folder-open text-sky-400"></i> Chấm cả Folder bài làm (Tự sắp xếp câu lộn xộn)
+        </h3>
+        <button onclick="closeFolderModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <p class="text-[11px] text-slate-400 mb-4">
+        AI sẽ OCR <strong>song song</strong> toàn bộ ảnh trong folder, tự nhận diện số câu (<code class="text-sky-300">Câu 1, Câu 2, Câu 3...</code>), sắp xếp lại đúng thứ tự, ghép mảnh cùng câu trải nhiều ảnh rồi chấm 1 bảng điểm hoàn chỉnh.
+      </p>
+
+      <!-- Mode Tabs -->
+      <div class="grid grid-cols-2 gap-2 mb-4 bg-slate-900 p-1 rounded-xl border border-slate-700">
+        <button id="ftab-btn-upload" onclick="switchFolderTab('upload')" class="py-1.5 rounded-lg text-xs font-bold bg-sky-600 text-white transition">
+          <i class="fa-solid fa-upload mr-1"></i> Chọn Folder từ máy
+        </button>
+        <button id="ftab-btn-path" onclick="switchFolderTab('path')" class="py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition">
+          <i class="fa-solid fa-terminal mr-1"></i> Nhập đường dẫn local
+        </button>
+      </div>
+
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Kiểu phân loại Folder:</label>
+          <select id="folder-cluster-mode" onchange="toggleFolderStudentNameField()" class="w-full bg-slate-900 border border-emerald-600/60 rounded-lg px-3 py-2 text-xs text-emerald-200 font-semibold focus:outline-none focus:border-emerald-400">
+            <option value="smart" selected>✨ Tự động tách từng Học sinh + Xoay ảnh ngang 90° + Xuất sub-folder (Khuyên dùng)</option>
+            <option value="single">👤 Gộp toàn bộ Folder thành 1 Học sinh duy nhất (tự sắp Câu 1 → 2 → 3)</option>
+          </select>
+        </div>
+        <div id="folder-student-name-wrap" class="hidden">
+          <label class="block text-xs font-medium text-slate-300 mb-1">Tên học sinh (để trống AI tự đọc từ đầu giấy):</label>
+          <input type="text" id="folder-student-name" placeholder="Ví dụ: Nguyễn Văn An (hoặc để trống)" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Chế độ chấm / Barem:</label>
+          <select id="folder-exam-id" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500">
+            <option value="AUTO" selected>🎯 AI Auto — Tự nhận đề & chấm từng câu theo thứ tự (Khuyên dùng)</option>
+            <option value="TOAN9_01">TOAN9_01 — PT chứa ẩn ở mẫu</option>
+          </select>
+        </div>
+
+        <!-- Tab 1: Upload folder (Real Folder Picker + Drag & Drop Folder) -->
+        <div id="ftab-upload">
+          <label class="block text-xs font-medium text-slate-300 mb-1.5">Chọn hoặc Kéo-Thả nguyên Thư mục (Folder) chứa ảnh bài làm:</label>
+          <div id="folder-dropzone"
+               onclick="pickFolderFromDisk()"
+               ondragover="handleFolderDragOver(event)"
+               ondragleave="handleFolderDragLeave(event)"
+               ondrop="handleFolderDrop(event)"
+               class="cursor-pointer border-2 border-dashed border-sky-500/50 hover:border-sky-400 bg-slate-900/90 hover:bg-sky-950/30 rounded-xl p-5 text-center transition">
+            <i class="fa-solid fa-folder-plus text-3xl text-sky-400 mb-2 block"></i>
+            <p class="text-xs font-bold text-white">Bấm để mở hộp thoại chọn THƯ MỤC (Folder)</p>
+            <p class="text-[11px] text-slate-400 mt-1">Hoặc kéo thả nguyên cả Folder từ Windows Explorer vào khung này</p>
+          </div>
+          <!-- Fallback ẩn (không đặt accept để trình duyệt không bị chuyển nhầm về Choose File) -->
+          <input type="file" id="folder-file-input" webkitdirectory directory multiple class="hidden" onchange="handleFallbackFolderInput(this.files)" />
+          <div id="folder-file-summary" class="hidden mt-2 text-[11px] text-sky-300 bg-sky-950/40 border border-sky-800/60 rounded-lg p-2.5"></div>
+        </div>
+
+        <!-- Tab 2: Local Path -->
+        <div id="ftab-path" class="hidden">
+          <label class="block text-xs font-medium text-slate-300 mb-1">Đường dẫn thư mục trên máy Windows:</label>
+          <input type="text" id="folder-path-input" placeholder="Ví dụ: D:\bai_thi\hs_an" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-sky-500" />
+          <p class="text-[10px] text-slate-500 mt-1">Server sẽ đọc trực tiếp toàn bộ ảnh (.jpg, .png, .webp) trong thư mục này.</p>
+        </div>
+
+        <div id="folder-error" class="hidden text-xs text-rose-400 bg-rose-950/40 border border-rose-800/60 rounded-lg p-2"></div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button onclick="closeFolderModal()" class="px-4 py-2 rounded-lg text-xs font-medium bg-slate-700 hover:bg-slate-600 text-slate-200">Hủy</button>
+          <button id="btn-submit-folder" onclick="submitFolderGrade()" class="px-4 py-2 rounded-lg text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white flex items-center gap-1.5 shadow">
+            <i class="fa-solid fa-bolt"></i> Chấm cả Folder ngay
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Upload Modal -->
   <div id="upload-modal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -665,6 +907,41 @@
         blurWarning.classList.add('hidden');
       }
 
+      // Render SymPy Verification Banner
+      const sympyBanner = document.getElementById('sympy-banner');
+      if (sympyBanner) {
+        if (data.math_verification && data.math_verification.equations_checked > 0) {
+          const hasErr = data.math_verification.invalid_transitions > 0;
+          sympyBanner.className = 'mt-2.5 p-2.5 rounded-lg text-[11px] border ' + (hasErr
+            ? 'bg-rose-950/50 border-rose-700/70 text-rose-200'
+            : 'bg-emerald-950/50 border-emerald-700/70 text-emerald-200');
+          sympyBanner.innerHTML = `<i class="fa-solid ${hasErr ? 'fa-triangle-exclamation text-rose-400' : 'fa-calculator text-emerald-400'} mr-1.5"></i><strong>SymPy:</strong> ${data.math_verification.summary}`;
+          sympyBanner.classList.remove('hidden');
+        } else {
+          sympyBanner.classList.add('hidden');
+        }
+      }
+
+      // Render Performance & Token Telemetry Panel
+      const telPanel = document.getElementById('telemetry-panel');
+      if (telPanel && data.telemetry) {
+        const t = data.telemetry;
+        const fmtSec = (ms) => ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${ms}ms`;
+        document.getElementById('tel-total-s').textContent = fmtSec(t.total_ms || 0);
+        document.getElementById('tel-pre-ms').textContent = fmtSec(t.preprocess_ms || 0);
+        document.getElementById('tel-ocr-s').textContent = data.cache_hit ? `${t.ocr_ms}ms ⚡` : fmtSec(t.ocr_ms || 0);
+        document.getElementById('tel-sympy-ms').textContent = `${t.sympy_ms || 0}ms`;
+        document.getElementById('tel-grade-s').textContent = fmtSec(t.grading_ms || 0);
+        document.getElementById('tel-ocr-model').textContent = t.ocr_model || '—';
+        document.getElementById('tel-grade-model').textContent = t.grader_model || '—';
+        document.getElementById('tel-ocr-tokens').textContent = `In: ${(t.ocr_input_tokens || 0).toLocaleString()} · Out: ${(t.ocr_output_tokens || 0).toLocaleString()} · Think: ${(t.ocr_thinking_tokens || 0).toLocaleString()}`;
+        document.getElementById('tel-grade-tokens').textContent = `In: ${(t.grader_input_tokens || 0).toLocaleString()} · Out: ${(t.grader_output_tokens || 0).toLocaleString()} · Think: ${(t.grader_thinking_tokens || 0).toLocaleString()}`;
+        document.getElementById('tel-total-tokens').textContent = `Tổng: ${(t.total_tokens || 0).toLocaleString()} tokens (In ${(t.total_input_tokens || 0).toLocaleString()} / Out ${(t.total_output_tokens || 0).toLocaleString()} / Think ${(t.total_thinking_tokens || 0).toLocaleString()})`;
+        document.getElementById('tel-cost').textContent = `~${t.estimated_cost_vnd || 0}đ VND`;
+        document.getElementById('tel-cost-usd').textContent = `$${(t.estimated_cost_usd || 0).toFixed(6)} USD`;
+        telPanel.classList.remove('hidden');
+      }
+
       const score = data.final_score !== null ? data.final_score : data.ai_total_score;
       document.getElementById('display-total-score').innerHTML = `${score.toFixed(2)} <span class="text-xs font-normal text-slate-500">/ ${totalPossible.toFixed(1)}đ</span>`;
 
@@ -701,46 +978,139 @@
         titleEl.innerHTML = `<span class="math-content">${formatMathSnippet(titleText)}</span>`;
       }
 
-      if (qResult) {
+      // Render Folder Reassembly Report (nếu là bài chấm từ Folder nhiều ảnh)
+      const reasBanner = document.getElementById('reassembly-banner');
+      if (reasBanner) {
+        if (data.folder_reassembly) {
+          const fr = data.folder_reassembly;
+          document.getElementById('reassembly-badge').textContent = `${fr.total_files_scanned} ảnh${fr.was_reordered ? ' · Đã sắp lại' : ''}`;
+          document.getElementById('reassembly-summary').textContent = fr.summary || '';
+          const chips = document.getElementById('reassembly-chips');
+          chips.innerHTML = '';
+          (fr.reordered_questions || []).forEach((rq) => {
+            const chip = document.createElement('span');
+            chip.className = 'px-2 py-0.5 rounded bg-slate-900/90 border border-sky-700/60 text-[10px] font-mono text-sky-200';
+            const filesStr = (rq.source_files || []).join(' + ');
+            chip.textContent = `${rq.question_id}: ${filesStr}${rq.merged_from_multiple_pages ? ' 🔗' : ''} (${rq.line_count} dòng)`;
+            chips.appendChild(chip);
+          });
+          const outRow = document.getElementById('reassembly-output-row');
+          if (outRow && data.submission_id) {
+            document.getElementById('reassembly-output-path').textContent = fr.output_folder_path || `backend/data/outputs/${data.submission_id}`;
+            document.getElementById('reassembly-output-path').title = fr.output_folder_path || '';
+            document.getElementById('btn-download-sorted-zip').href = `/api/v1/submissions/${data.submission_id}/export-sorted-folder`;
+            outRow.classList.remove('hidden');
+          }
+          reasBanner.classList.remove('hidden');
+        } else {
+          reasBanner.classList.add('hidden');
+        }
+      }
+
+      if (data.question_results && data.question_results.length > 0) {
+        const allComments = data.question_results
+          .map((qr) => (data.question_results.length > 1 ? `[${qr.question_id}] ` : '') + (qr.teacher_summary_comment || ''))
+          .filter(Boolean)
+          .join(' • ');
         const commentEl = document.getElementById('ai-feedback-box');
         if (commentEl) {
-          commentEl.innerHTML = `<span class="math-content">${formatMathSnippet(qResult.teacher_summary_comment || 'Em nắm chắc kiến thức cơ bản.')}</span>`;
+          commentEl.innerHTML = `<span class="math-content">${formatMathSnippet(allComments || 'Em nắm chắc kiến thức cơ bản.')}</span>`;
         }
-        
-        if (qResult.error_propagation_detected) {
+
+        const anyEp = data.question_results.some((qr) => qr.error_propagation_detected);
+        if (anyEp) {
           errorPropBanner.classList.remove('hidden');
         } else {
           errorPropBanner.classList.add('hidden');
         }
 
         criteriaList.innerHTML = '';
-        (qResult.criteria_evaluations || qResult.criteria_evaluation || []).forEach((c, idx) => {
-          const isPassed = c.status === 'passed';
-          const isPartial = c.status === 'partial';
-          const badgeClass = isPassed ? 'text-emerald-400 bg-emerald-950/60 border-emerald-800' :
-                             isPartial ? 'text-amber-400 bg-amber-950/60 border-amber-800' :
-                             'text-rose-400 bg-rose-950/60 border-rose-800';
-          const icon = isPassed ? '<i class="fa-solid fa-circle-check text-emerald-400 mr-1.5"></i>' :
-                       isPartial ? '<i class="fa-solid fa-circle-half-stroke text-amber-400 mr-1.5"></i>' :
-                       '<i class="fa-solid fa-circle-xmark text-rose-400 mr-1.5"></i>';
+        const extractedMap = {};
+        (data.extracted_questions || []).forEach((eq) => { extractedMap[eq.question_id] = eq; });
 
-          const card = document.createElement('div');
-          card.className = 'bg-slate-800/80 border border-slate-700/80 rounded-xl p-3 shadow-sm hover:border-slate-600 transition';
-          const critName = c.name ? `${idx + 1}. ${c.name}` : `${idx + 1}. ${c.criterion_id}`;
-          card.innerHTML = `
-            <div class="flex items-center justify-between text-xs mb-1">
-              <span class="font-semibold text-slate-200 math-content">${formatMathSnippet(critName)}</span>
-              <span class="${badgeClass} px-2 py-0.5 rounded font-mono font-bold text-[11px] border">
-                ${c.earned_points || c.score} / ${c.max_points || c.max_score}đ
-              </span>
+        data.question_results.forEach((qr) => {
+          const eq = extractedMap[qr.question_id];
+          const srcFiles = (eq && eq.source_files) ? eq.source_files : [];
+          const qLines = (eq && eq.lines) ? eq.lines : [];
+
+          const qWrap = document.createElement('div');
+          qWrap.className = 'bg-slate-800/50 border border-slate-700/80 rounded-xl p-3 space-y-2';
+
+          // Header câu + nút nhảy thẳng tới đúng ảnh nguồn
+          const srcBtnsHtml = srcFiles.map((fn) => {
+            const safeFn = fn.replace(/'/g, "\\'");
+            const shortName = fn.length > 14 ? fn.slice(0, 10) + '...' + fn.slice(-4) : fn;
+            return `<button onclick="jumpToSourceFile('${safeFn}')" title="Bấm để xem ảnh ${fn}" class="px-1.5 py-0.5 rounded bg-sky-600/25 hover:bg-sky-600/50 text-sky-200 border border-sky-500/40 text-[10px] font-mono transition"><i class="fa-solid fa-image mr-1"></i>${shortName}</button>`;
+          }).join(' ');
+
+          const headerDiv = document.createElement('div');
+          headerDiv.className = 'flex items-start justify-between gap-2 pb-1.5 border-b border-slate-700/60';
+          headerDiv.innerHTML = `
+            <div class="space-y-1">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="text-xs font-bold text-indigo-200">📌 ${qr.question_id}</span>
+                ${srcFiles.length > 1 ? '<span class="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono">Ghép ' + srcFiles.length + ' ảnh</span>' : ''}
+                ${srcBtnsHtml}
+              </div>
+              ${eq && eq.question_text ? `<p class="text-[11px] text-slate-400 italic math-content">Đề nhận diện: ${formatMathSnippet(eq.question_text)}</p>` : ''}
             </div>
-            <p class="text-[12px] text-slate-400 leading-relaxed">${icon} <span class="math-content">${formatMathSnippet(c.feedback)}</span></p>
+            <span class="font-mono text-sm font-black text-amber-300 shrink-0">${(qr.suggested_score || qr.earned_points || 0).toFixed(2)} / ${(qr.total_points || qr.max_score || 0).toFixed(2)}đ</span>
           `;
-          criteriaList.appendChild(card);
+          qWrap.appendChild(headerDiv);
+
+          // Khối gập xem chữ viết tay riêng của câu này ngay cạnh điểm
+          if (qLines.length > 0) {
+            const det = document.createElement('details');
+            det.className = 'bg-slate-900/70 border border-slate-800 rounded-lg px-2.5 py-1.5';
+            const linesHtml = qLines.map((l) => {
+              const strike = l.is_strikethrough || l.line_type === 'scratch';
+              const rawTxt = l.latex || l.raw_text || '';
+              return `<div class="py-1 border-b border-slate-800/70 last:border-0 flex items-start justify-between gap-2 text-[11px] ${strike ? 'opacity-50 line-through' : ''}">
+                <div class="overflow-x-auto"><span class="text-[9px] text-slate-500 font-mono mr-1.5">#${l.line_no}</span><span class="text-slate-200 math-content">${formatMathSnippet(rawTxt)}</span></div>
+                ${l.source_file ? `<button onclick="jumpToSourceFile('${l.source_file.replace(/'/g, "\\'")}')" class="text-[9px] font-mono text-sky-400 hover:underline shrink-0">${l.source_file.slice(0, 8)}…</button>` : ''}
+              </div>`;
+            }).join('');
+            det.innerHTML = `<summary class="cursor-pointer text-[11px] text-sky-300 font-semibold"><i class="fa-solid fa-eye mr-1"></i>Xem chữ viết tay AI đọc cho ${qr.question_id} (${qLines.length} dòng)</summary><div class="mt-1.5">${linesHtml}</div>`;
+            qWrap.appendChild(det);
+          }
+
+          (qr.criteria_evaluations || qr.criteria_evaluation || []).forEach((c, idx) => {
+            const isPassed = c.status === 'passed';
+            const isPartial = c.status === 'partial';
+            const badgeClass = isPassed ? 'text-emerald-400 bg-emerald-950/60 border-emerald-800' :
+                               isPartial ? 'text-amber-400 bg-amber-950/60 border-amber-800' :
+                               'text-rose-400 bg-rose-950/60 border-rose-800';
+            const icon = isPassed ? '<i class="fa-solid fa-circle-check text-emerald-400 mr-1.5"></i>' :
+                         isPartial ? '<i class="fa-solid fa-circle-half-stroke text-amber-400 mr-1.5"></i>' :
+                         '<i class="fa-solid fa-circle-xmark text-rose-400 mr-1.5"></i>';
+
+            const card = document.createElement('div');
+            card.className = 'bg-slate-900/70 border border-slate-700/70 rounded-lg p-2.5';
+            const critName = c.name ? `${idx + 1}. ${c.name}` : `${idx + 1}. ${c.criterion_id}`;
+            card.innerHTML = `
+              <div class="flex items-center justify-between text-xs mb-1">
+                <span class="font-semibold text-slate-200 math-content">${formatMathSnippet(critName)}</span>
+                <span class="${badgeClass} px-2 py-0.5 rounded font-mono font-bold text-[11px] border">
+                  ${c.earned_points || c.score} / ${c.max_points || c.max_score}đ
+                </span>
+              </div>
+              <p class="text-[11px] text-slate-400 leading-relaxed">${icon} <span class="math-content">${formatMathSnippet(c.feedback)}</span></p>
+            `;
+            qWrap.appendChild(card);
+          });
+
+          if (qr.teacher_summary_comment) {
+            const cmt = document.createElement('p');
+            cmt.className = 'text-[11px] text-indigo-200/80 italic pt-1 math-content';
+            cmt.innerHTML = `<i class="fa-solid fa-comment text-indigo-400 mr-1"></i>${formatMathSnippet(qr.teacher_summary_comment)}`;
+            qWrap.appendChild(cmt);
+          }
+
+          criteriaList.appendChild(qWrap);
         });
       }
 
-      // Render ALL OCR lines across all questions (capturing C1, C2, etc.)
+      // Render ALL OCR lines across all questions (hiển thị cả mã câu & tên file nguồn)
       const allOcrLines = [];
       (data.extracted_questions || []).forEach(q => {
         (q.lines || []).forEach(l => {
@@ -754,17 +1124,40 @@
         ocrBox.innerHTML = '';
         allOcrLines.forEach(l => {
           const lineEl = document.createElement('div');
-          lineEl.className = 'p-2 bg-slate-900 rounded border border-slate-800 flex items-center justify-between text-[11px] gap-2';
+          const strike = l.is_strikethrough || l.line_type === 'scratch';
+          lineEl.className = 'p-2 bg-slate-900 rounded border border-slate-800 flex items-center justify-between text-[11px] gap-2' + (strike ? ' opacity-55 line-through' : '');
           const lineRaw = l.latex || l.raw_text || '';
+          const srcBadge = l.source_file ? `<span class="px-1.5 py-0.5 rounded text-[9px] font-mono bg-sky-950/70 text-sky-300 border border-sky-800/60 shrink-0">${l.q_id} · ${l.source_file}</span>` : `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono uppercase bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 shrink-0">${l.q_id || l.line_type}</span>`;
           lineEl.innerHTML = `
             <div class="flex items-center gap-2 overflow-x-auto">
-              <span class="px-1.5 py-0.5 rounded text-[10px] font-mono uppercase bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 shrink-0">${l.line_type}</span>
+              ${srcBadge}
               <span class="text-slate-200 math-content">${formatMathSnippet(lineRaw)}</span>
             </div>
             <span class="text-slate-500 font-mono text-[10px] shrink-0">${(l.confidence * 100).toFixed(0)}%</span>
           `;
           ocrBox.appendChild(lineEl);
         });
+      }
+
+      // Cảnh báo nếu cùng mã câu xuất hiện trên nhiều ảnh (giúp user verify ngay xem có bị trộn nhiều HS hay ảnh trùng không)
+      const dupWarn = document.getElementById('duplicate-q-warning');
+      if (dupWarn) {
+        const mergedIds = (data.folder_reassembly && data.folder_reassembly.merged_question_ids) || [];
+        if (mergedIds.length > 0) {
+          dupWarn.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-amber-400 mr-1.5"></i><strong>Cần đối soát ghép câu:</strong> AI thấy các mã câu <code class="text-amber-300">${mergedIds.join(', ')}</code> xuất hiện trên <strong>nhiều ảnh khác nhau</strong>. Hãy bấm từng ảnh ở thanh phía dưới bên trái để kiểm tra xem đây là 1 bài giải trải nhiều trang hay nhiều bài/bản chụp khác nhau!`;
+          dupWarn.classList.remove('hidden');
+        } else {
+          dupWarn.classList.add('hidden');
+        }
+      }
+
+      // Nạp danh sách toàn bộ ảnh trang từ server để dựng Filmstrip + Đối soát 1-1
+      if (data.submission_id && !data.submission_id.startsWith('sub_demo')) {
+        loadSubmissionPages(data.submission_id);
+      } else {
+        currentPages = [];
+        document.getElementById('page-filmstrip').classList.add('hidden');
+        renderVerifyOcrTab();
       }
 
       // Trigger KaTeX render across all updated math nodes
@@ -893,7 +1286,7 @@
         currentSubmission.status = 'APPROVED';
         renderGradingRecord(currentSubmission);
       }
-      alert(`Đã duyệt bài cho học sinh với điểm số: ${(currentSubmission.final_score !== null ? currentSubmission.final_score : currentSubmission.ai_total_score).toFixed(2)}/2.0!`);
+      alert(`Đã duyệt bài cho học sinh với điểm số: ${(currentSubmission.final_score !== null ? currentSubmission.final_score : currentSubmission.ai_total_score).toFixed(2)}/${(currentSubmission.total_points || 10.0).toFixed(1)}đ!`);
     }
 
     async function submitTeacherOverride() {
@@ -959,6 +1352,467 @@
         closeApiKeyModal();
       }
     });
+
+    // Folder Grading Modal Logic
+    let activeFolderTab = 'upload';
+    let selectedFolderFiles = [];
+    let selectedFolderName = '';
+
+    function openFolderModal() {
+      document.getElementById('folder-error').classList.add('hidden');
+      document.getElementById('folder-modal').classList.remove('hidden');
+    }
+    function closeFolderModal() {
+      document.getElementById('folder-modal').classList.add('hidden');
+    }
+    function switchFolderTab(tab) {
+      activeFolderTab = tab;
+      document.getElementById('ftab-upload').classList.toggle('hidden', tab !== 'upload');
+      document.getElementById('ftab-path').classList.toggle('hidden', tab !== 'path');
+      document.getElementById('ftab-btn-upload').className = tab === 'upload'
+        ? 'py-1.5 rounded-lg text-xs font-bold bg-sky-600 text-white transition'
+        : 'py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition';
+      document.getElementById('ftab-btn-path').className = tab === 'path'
+        ? 'py-1.5 rounded-lg text-xs font-bold bg-sky-600 text-white transition'
+        : 'py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition';
+    }
+    function updateFolderPreviewUI(files, folderLabel = '') {
+      const box = document.getElementById('folder-file-summary');
+      const imgs = files.filter((f) => /\.(jpe?g|png|webp)$/i.test(f.name));
+      selectedFolderFiles = imgs;
+      selectedFolderName = folderLabel;
+      if (!imgs.length) {
+        box.textContent = 'Không tìm thấy ảnh hợp lệ (.jpg, .png, .webp) trong thư mục vừa chọn.';
+      } else {
+        const names = imgs.slice(0, 6).map((f) => f.name).join(', ') + (imgs.length > 6 ? ` ... (+${imgs.length - 6})` : '');
+        const prefix = folderLabel ? `📁 Thư mục "${folderLabel}" — ` : '';
+        box.textContent = `${prefix}Đã quét ${imgs.length} ảnh: ${names}`;
+      }
+      box.classList.remove('hidden');
+    }
+    async function pickFolderFromDisk() {
+      // Ưu tiên API chọn Thư mục gốc của Chrome/Edge (mở thẳng hộp thoại Select Folder)
+      if (window.showDirectoryPicker) {
+        try {
+          const dirHandle = await window.showDirectoryPicker({ mode: 'read' });
+          const collected = [];
+          async function walkDir(handle) {
+            for await (const entry of handle.values()) {
+              if (entry.kind === 'file' && /\.(jpe?g|png|webp)$/i.test(entry.name)) {
+                collected.push(await entry.getFile());
+              } else if (entry.kind === 'directory') {
+                await walkDir(entry);
+              }
+            }
+          }
+          await walkDir(dirHandle);
+          updateFolderPreviewUI(collected, dirHandle.name);
+          return;
+        } catch (err) {
+          if (err && err.name === 'AbortError') return;
+        }
+      }
+      // Fallback sang webkitdirectory cho Firefox/Safari
+      document.getElementById('folder-file-input').click();
+    }
+    function handleFallbackFolderInput(fileList) {
+      const arr = Array.from(fileList || []);
+      const firstRel = arr[0] && arr[0].webkitRelativePath ? arr[0].webkitRelativePath.split('/')[0] : '';
+      updateFolderPreviewUI(arr, firstRel);
+    }
+    function handleFolderDragOver(e) {
+      e.preventDefault();
+      document.getElementById('folder-dropzone').classList.add('border-sky-400', 'bg-sky-950/40');
+    }
+    function handleFolderDragLeave(e) {
+      e.preventDefault();
+      document.getElementById('folder-dropzone').classList.remove('border-sky-400', 'bg-sky-950/40');
+    }
+    async function handleFolderDrop(e) {
+      e.preventDefault();
+      document.getElementById('folder-dropzone').classList.remove('border-sky-400', 'bg-sky-950/40');
+      const items = Array.from(e.dataTransfer.items || []);
+      const collected = [];
+      let rootLabel = '';
+
+      async function readEntry(entry) {
+        if (entry.isFile) {
+          await new Promise((resolve) => {
+            entry.file((file) => {
+              if (/\.(jpe?g|png|webp)$/i.test(file.name)) collected.push(file);
+              resolve();
+            }, () => resolve());
+          });
+        } else if (entry.isDirectory) {
+          if (!rootLabel) rootLabel = entry.name;
+          const reader = entry.createReader();
+          const entries = await new Promise((resolve) => reader.readEntries(resolve, () => resolve([])));
+          for (const child of entries) await readEntry(child);
+        }
+      }
+
+      for (const item of items) {
+        const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+        if (entry) {
+          await readEntry(entry);
+        } else if (item.kind === 'file') {
+          const f = item.getAsFile();
+          if (f && /\.(jpe?g|png|webp)$/i.test(f.name)) collected.push(f);
+        }
+      }
+      updateFolderPreviewUI(collected, rootLabel);
+    }
+    let currentClassBatch = null;
+    function toggleFolderStudentNameField() {
+      const mode = document.getElementById('folder-cluster-mode').value;
+      document.getElementById('folder-student-name-wrap').classList.toggle('hidden', mode === 'smart');
+    }
+
+    function renderClassBatchBar(batch) {
+      currentClassBatch = batch;
+      const bar = document.getElementById('class-batch-bar');
+      if (!batch || !batch.students || !batch.students.length) {
+        bar.classList.add('hidden');
+        return;
+      }
+      document.getElementById('class-batch-title').textContent = batch.summary || `Đã tách ${batch.total_students_detected} học sinh`;
+      const t = batch.telemetry || {};
+      document.getElementById('class-batch-meta').textContent = `⏱️ ${((t.total_ms || 0) / 1000).toFixed(1)}s · 🪙 ${(t.total_tokens || 0).toLocaleString()} tok · ~${t.estimated_cost_vnd || 0}đ cả lớp`;
+      document.getElementById('class-batch-folder').textContent = `📂 ${batch.output_root_folder}`;
+      document.getElementById('class-batch-folder').title = batch.output_root_folder;
+      document.getElementById('btn-download-class-zip').href = `/api/v1/batches/${batch.batch_id}/export-zip`;
+
+      const pills = document.getElementById('class-student-pills');
+      pills.innerHTML = '';
+      batch.students.forEach((rec, idx) => {
+        const isCurrent = currentSubmission && currentSubmission.submission_id === rec.submission_id;
+        const rotated = rec.folder_reassembly && rec.folder_reassembly.rotated_files && rec.folder_reassembly.rotated_files.length > 0;
+        const btn = document.createElement('button');
+        btn.onclick = () => { renderGradingRecord(rec); renderClassBatchBar(currentClassBatch); switchRightTab('verify'); };
+        btn.className = 'px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition flex items-center gap-1.5 ' + (isCurrent
+          ? 'bg-emerald-600 text-white border-emerald-400 shadow'
+          : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700');
+        btn.innerHTML = `<span>${rec.student_name}</span><span class="text-[10px] font-mono opacity-80">(${rec.page_count} ảnh · ${rec.ai_total_score}/${rec.total_points}đ)${rotated ? ' 🔄' : ''}</span>`;
+        pills.appendChild(btn);
+      });
+      bar.classList.remove('hidden');
+    }
+
+    async function submitFolderGrade() {
+      const errBox = document.getElementById('folder-error');
+      const btn = document.getElementById('btn-submit-folder');
+      const loadingPill = document.getElementById('loading-pill');
+      const clusterMode = document.getElementById('folder-cluster-mode').value || 'smart';
+      const studentName = document.getElementById('folder-student-name').value.trim() || 'Học sinh ẩn danh';
+      const examId = document.getElementById('folder-exam-id').value || 'AUTO';
+      errBox.classList.add('hidden');
+
+      btn.disabled = true;
+      btn.innerHTML = clusterMode === 'smart'
+        ? '<i class="fa-solid fa-spinner fa-spin"></i> Đang OCR, xoay ảnh & tách từng Học sinh...'
+        : '<i class="fa-solid fa-spinner fa-spin"></i> Đang OCR song song & sắp câu...';
+      loadingPill.classList.remove('hidden');
+
+      try {
+        let res;
+        if (activeFolderTab === 'upload') {
+          const imgs = selectedFolderFiles;
+          if (!imgs.length) {
+            throw new Error('Vui lòng chọn hoặc kéo thả thư mục có ít nhất 1 file ảnh (.jpg, .png, .webp).');
+          }
+          const fd = new FormData();
+          imgs.forEach((f) => fd.append('files', f, f.name));
+          fd.append('exam_id', examId);
+          if (clusterMode === 'smart') {
+            res = await fetch('/api/v1/submissions/grade-folder-smart-upload', { method: 'POST', body: fd });
+          } else {
+            fd.append('student_name', studentName);
+            res = await fetch('/api/v1/submissions/grade-folder-upload', { method: 'POST', body: fd });
+          }
+        } else {
+          const folderPath = document.getElementById('folder-path-input').value.trim();
+          if (!folderPath) {
+            throw new Error('Vui lòng nhập đường dẫn thư mục local trên máy (vd: D:\\bai_thi\\hs1).');
+          }
+          const endpoint = clusterMode === 'smart' ? '/api/v1/submissions/grade-folder-smart-path' : '/api/v1/submissions/grade-folder-path';
+          res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ folder_path: folderPath, exam_id: examId, student_name: studentName })
+          });
+        }
+
+        const data = await res.json();
+        if (!res.ok) {
+          const msg = (data.detail && data.detail.message) || JSON.stringify(data.detail) || 'Lỗi chấm folder';
+          throw new Error(msg);
+        }
+        closeFolderModal();
+
+        if (clusterMode === 'smart' && data.students && data.students.length > 0) {
+          renderGradingRecord(data.students[0]);
+          renderClassBatchBar(data);
+          switchRightTab('verify');
+        } else {
+          document.getElementById('class-batch-bar').classList.add('hidden');
+          renderGradingRecord(data);
+          switchRightTab('verify');
+        }
+      } catch (err) {
+        errBox.textContent = 'Lỗi: ' + err.message;
+        errBox.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-bolt"></i> Chấm cả Folder ngay';
+        loadingPill.classList.add('hidden');
+      }
+    }
+
+    // =========================================================================
+    // 1-TO-1 VERIFICATION WORKSPACE: FILMSTRIP, TABS, MATRIX & HISTORY
+    // =========================================================================
+    let currentPages = []; // [{page_no, source_file, url, questions, total_lines}]
+    let activePageIdx = 0;
+    let verifyOnlyActivePage = true;
+    let showRawOcrText = false;
+
+    function switchRightTab(tabName) {
+      ['verify', 'score', 'matrix'].forEach((t) => {
+        document.getElementById(`rtab-${t}`).classList.toggle('hidden', t !== tabName);
+        const btn = document.getElementById(`rtab-btn-${t}`);
+        btn.className = t === tabName
+          ? 'py-2 px-2 rounded-lg text-[11px] font-bold bg-indigo-600 text-white transition flex items-center justify-center gap-1'
+          : 'py-2 px-2 rounded-lg text-[11px] font-semibold text-slate-400 hover:text-white transition flex items-center justify-center gap-1';
+      });
+      renderAllMath();
+    }
+
+    function toggleVerifyScope() {
+      verifyOnlyActivePage = !verifyOnlyActivePage;
+      document.getElementById('btn-toggle-scope').textContent = verifyOnlyActivePage ? 'Chỉ xem Ảnh đang chọn' : 'Đang xem Toàn bộ Folder';
+      renderVerifyOcrTab();
+    }
+
+    function toggleRawTextMode() {
+      showRawOcrText = !showRawOcrText;
+      document.getElementById('btn-toggle-raw').textContent = showRawOcrText ? 'Raw: Bật' : 'Raw: Tắt';
+      renderVerifyOcrTab();
+    }
+
+    async function loadSubmissionPages(submissionId) {
+      try {
+        const res = await fetch(`/api/v1/submissions/${submissionId}/pages`);
+        if (!res.ok) return;
+        currentPages = await res.json();
+        activePageIdx = 0;
+        renderPageFilmstrip();
+        renderPageQuestionMatrix();
+        if (currentPages.length > 0) {
+          selectPageByIndex(0);
+        } else {
+          renderVerifyOcrTab();
+        }
+      } catch (e) {
+        console.error('Lỗi tải danh sách trang ảnh:', e);
+      }
+    }
+
+    function renderPageFilmstrip() {
+      const strip = document.getElementById('page-filmstrip');
+      if (!currentPages.length) {
+        strip.classList.add('hidden');
+        return;
+      }
+      strip.classList.remove('hidden');
+      strip.innerHTML = '';
+      currentPages.forEach((p, idx) => {
+        const isAct = idx === activePageIdx;
+        const qList = (p.questions || []).map((q) => q.question_id).join(', ') || 'Chưa rõ câu';
+        const btn = document.createElement('button');
+        btn.onclick = () => selectPageByIndex(idx);
+        btn.className = 'shrink-0 flex items-center gap-2 p-1.5 rounded-lg border text-left transition ' + (isAct
+          ? 'bg-sky-950/70 border-sky-400 ring-1 ring-sky-400/50'
+          : 'bg-slate-800/80 border-slate-700 hover:border-slate-500');
+        btn.innerHTML = `
+          <img src="${p.url}" class="w-10 h-12 object-cover rounded border border-slate-700 bg-black" />
+          <div class="max-w-[130px]">
+            <div class="text-[10px] font-bold ${isAct ? 'text-sky-300' : 'text-slate-200'}">Ảnh ${p.page_no}/${currentPages.length}</div>
+            <div class="text-[9px] text-slate-400 font-mono truncate" title="${p.source_file}">${p.source_file}</div>
+            <div class="text-[9px] text-emerald-300 truncate font-semibold" title="${qList}">${qList}</div>
+          </div>
+        `;
+        strip.appendChild(btn);
+      });
+    }
+
+    function selectPageByIndex(idx) {
+      if (!currentPages[idx]) return;
+      activePageIdx = idx;
+      const p = currentPages[idx];
+      document.getElementById('image-placeholder').classList.add('hidden');
+      const imgEl = document.getElementById('paper-image');
+      imgEl.classList.remove('hidden');
+      imgEl.src = p.url;
+      resetZoom();
+
+      const pill = document.getElementById('active-page-pill');
+      const qNames = (p.questions || []).map((q) => q.question_id).join(', ');
+      pill.textContent = `Ảnh ${p.page_no}/${currentPages.length}: ${p.source_file}${qNames ? ' · ' + qNames : ''}`;
+      pill.classList.remove('hidden');
+
+      renderPageFilmstrip();
+      renderVerifyOcrTab();
+    }
+
+    function jumpToSourceFile(sourceFile) {
+      const idx = currentPages.findIndex((p) => p.source_file === sourceFile);
+      if (idx >= 0) {
+        selectPageByIndex(idx);
+        switchRightTab('verify');
+      }
+    }
+
+    function renderVerifyOcrTab() {
+      const box = document.getElementById('verify-ocr-groups');
+      const scopeLabel = document.getElementById('verify-scope-label');
+      if (!currentSubmission || !currentSubmission.extracted_questions || !currentSubmission.extracted_questions.length) {
+        box.innerHTML = '<div class="text-center py-6 text-xs text-slate-500 italic">Chưa có dữ liệu OCR để đối soát.</div>';
+        return;
+      }
+
+      const activePage = currentPages[activePageIdx] || null;
+      const filterByFile = verifyOnlyActivePage && activePage && currentPages.length > 1;
+
+      if (filterByFile) {
+        scopeLabel.innerHTML = `<i class="fa-solid fa-image text-sky-400 mr-1"></i> Ảnh ${activePage.page_no}/${currentPages.length}: <span class="font-mono text-sky-300">${activePage.source_file}</span>`;
+      } else {
+        scopeLabel.innerHTML = `<i class="fa-solid fa-layer-group text-indigo-400 mr-1"></i> Toàn bộ bài nộp (${currentSubmission.extracted_questions.length} câu)`;
+      }
+
+      box.innerHTML = '';
+      let matchedGroups = 0;
+
+      currentSubmission.extracted_questions.forEach((q) => {
+        const lines = (q.lines || []).filter((l) => {
+          if (!filterByFile) return true;
+          if (l.source_file) return l.source_file === activePage.source_file;
+          return l.page_no === activePage.page_no;
+        });
+        if (!lines.length) return;
+        matchedGroups++;
+
+        const card = document.createElement('div');
+        card.className = 'bg-slate-800/70 border border-slate-700/80 rounded-xl p-3 space-y-2';
+
+        const head = document.createElement('div');
+        head.className = 'flex items-center justify-between gap-2 pb-1.5 border-b border-slate-700/70';
+        head.innerHTML = `
+          <div>
+            <span class="text-xs font-bold text-sky-300">📌 ${q.question_id}</span>
+            ${q.student_name_detected ? `<span class="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">HS: ${q.student_name_detected}</span>` : ''}
+            ${q.question_text ? `<p class="text-[11px] text-slate-400 mt-0.5 math-content">${formatMathSnippet(q.question_text)}</p>` : ''}
+          </div>
+          <span class="text-[10px] font-mono text-slate-400 shrink-0">${lines.length} dòng</span>
+        `;
+        card.appendChild(head);
+
+        lines.forEach((l) => {
+          const strike = l.is_strikethrough || l.line_type === 'scratch';
+          const rawTxt = l.raw_text || l.latex || '';
+          const mathTxt = l.latex || l.raw_text || '';
+          const row = document.createElement('div');
+          row.className = 'p-2 rounded-lg bg-slate-900/90 border border-slate-800 text-xs space-y-1 ' + (strike ? 'opacity-55 line-through border-rose-900/50' : '');
+          row.innerHTML = `
+            <div class="flex items-center justify-between text-[10px] text-slate-400">
+              <div class="flex items-center gap-1.5">
+                <span class="font-mono text-slate-500">Dòng ${l.line_no}</span>
+                <span class="px-1.5 py-0.5 rounded uppercase font-mono text-[9px] ${strike ? 'bg-rose-950 text-rose-300' : 'bg-indigo-950 text-indigo-300'}">${strike ? 'GẠCH BỎ' : l.line_type}</span>
+                ${!filterByFile && l.source_file ? `<button onclick="jumpToSourceFile('${l.source_file.replace(/'/g, "\\'")}')" class="text-[9px] font-mono text-sky-400 hover:underline">${l.source_file.slice(0, 10)}…</button>` : ''}
+              </div>
+              <span class="font-mono ${(l.confidence || 0.9) < 0.7 ? 'text-amber-400 font-bold' : 'text-slate-500'}">${Math.round((l.confidence || 0.9) * 100)}%</span>
+            </div>
+            <div class="text-slate-100 overflow-x-auto math-content">${formatMathSnippet(mathTxt)}</div>
+            ${showRawOcrText ? `<div class="text-[10px] font-mono text-amber-300/80 bg-slate-950/80 px-2 py-1 rounded break-all">RAW: ${rawTxt.replace(/</g, '&lt;')}</div>` : ''}
+          `;
+          card.appendChild(row);
+        });
+
+        box.appendChild(card);
+      });
+
+      if (matchedGroups === 0) {
+        box.innerHTML = '<div class="text-center py-6 text-xs text-amber-300 bg-amber-950/30 border border-amber-800/50 rounded-xl">AI không trích xuất được dòng chữ nào từ ảnh đang chọn. Hãy kiểm tra ảnh này có bị mờ/trống không!</div>';
+      }
+      renderAllMath();
+    }
+
+    function renderPageQuestionMatrix() {
+      const matBox = document.getElementById('page-question-matrix');
+      document.getElementById('matrix-page-count').textContent = `${currentPages.length} ảnh`;
+      if (!currentPages.length) {
+        matBox.innerHTML = '<div class="text-slate-500 italic">Không có danh sách ảnh trang.</div>';
+        return;
+      }
+      matBox.innerHTML = '';
+      currentPages.forEach((p, idx) => {
+        const row = document.createElement('div');
+        row.className = 'flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-900/90 border border-slate-800';
+        const chips = (p.questions || []).map((q) => `<span class="px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-200 border border-indigo-800/60 font-mono text-[10px]">${q.question_id} (${q.line_count})</span>`).join(' ') || '<span class="text-rose-400">Không nhận diện được câu</span>';
+        row.innerHTML = `
+          <div class="min-w-0 flex-1 space-y-1">
+            <div class="flex items-center gap-1.5">
+              <span class="font-bold text-sky-300 shrink-0">Ảnh ${p.page_no}</span>
+              <span class="font-mono text-[10px] text-slate-400 truncate" title="${p.source_file}">${p.source_file}</span>
+            </div>
+            <div class="flex flex-wrap gap-1">${chips}</div>
+          </div>
+          <button onclick="selectPageByIndex(${idx}); switchRightTab('verify');" class="shrink-0 px-2.5 py-1 rounded bg-sky-600/30 hover:bg-sky-600/60 text-sky-200 border border-sky-500/40 text-[10px] font-bold">
+            <i class="fa-solid fa-eye mr-1"></i>Soi
+          </button>
+        `;
+        matBox.appendChild(row);
+      });
+    }
+
+    async function openHistoryModal() {
+      document.getElementById('history-modal').classList.remove('hidden');
+      const box = document.getElementById('history-modal-list');
+      box.innerHTML = '<div class="text-slate-400 text-center py-6"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Đang tải lịch sử SQLite...</div>';
+      try {
+        const res = await fetch('/api/v1/submissions?limit=25');
+        const list = await res.json();
+        if (!list.length) {
+          box.innerHTML = '<div class="text-slate-400 text-center py-6">Chưa có bài chấm nào trong cơ sở dữ liệu.</div>';
+          return;
+        }
+        box.innerHTML = '';
+        list.forEach((s) => {
+          const score = s.final_score !== null && s.final_score !== undefined ? s.final_score : s.ai_total_score;
+          const btn = document.createElement('button');
+          btn.onclick = () => { closeHistoryModal(); renderGradingRecord(s); switchRightTab('verify'); };
+          btn.className = 'w-full text-left p-3 rounded-xl bg-slate-900 hover:bg-slate-700/80 border border-slate-700 flex items-center justify-between gap-2 transition';
+          btn.innerHTML = `
+            <div class="min-w-0">
+              <div class="font-bold text-white truncate">${s.exam_title || s.exam_id}</div>
+              <div class="text-[11px] text-slate-400 mt-0.5">
+                <span class="font-mono text-sky-300">${s.submission_id}</span> · ${s.student_name} · <strong>${s.page_count || 1} ảnh</strong> · ${(s.extracted_questions || []).length} câu
+              </div>
+            </div>
+            <div class="text-right shrink-0">
+              <div class="text-base font-black text-amber-300 font-mono">${Number(score).toFixed(2)}/${Number(s.total_points || 10).toFixed(1)}đ</div>
+              <div class="text-[10px] ${s.status === 'APPROVED' ? 'text-emerald-400' : 'text-indigo-300'}">${s.status}</div>
+            </div>
+          `;
+          box.appendChild(btn);
+        });
+      } catch (e) {
+        box.innerHTML = '<div class="text-rose-400 text-center py-6">Lỗi tải lịch sử: ' + e.message + '</div>';
+      }
+    }
+
+    function closeHistoryModal() {
+      document.getElementById('history-modal').classList.add('hidden');
+    }
 
     // Init
     checkApiKeyStatus();

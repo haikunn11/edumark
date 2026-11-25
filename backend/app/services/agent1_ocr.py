@@ -46,16 +46,21 @@ QUY TẮC BẮT BUỘC (KHÔNG ĐƯỢC VI PHẠM):
 1. QUÉT TRỌN VẸN TOÀN TRANG (TOP-TO-BOTTOM, LEFT-TO-RIGHT):
    - Đọc từ tiêu đề, họ tên/lớp học sinh ở đầu trang (nếu có), đề bài, cho đến dòng cuối cùng của trang cuối cùng.
    - Nếu bài viết chia 2 cột hoặc nhiều trang, đọc trọn cột trái rồi cột phải, trang 1 rồi trang 2... và ghi đúng số trang `page_no` (1-based).
-2. TRUNG THỰC TUYỆT ĐỐI — CẤM TỰ SỬA BÀI HỌC SINH:
+   - **TÁCH ĐÚNG TỪNG CÂU HỎI:** Nếu trong ảnh có nhiều câu/bài (ví dụ `Câu 1`, `Câu 2`, `Bài 1a`, `Bài 3`...), BẮT BUỘC tách thành từng phần tử riêng trong mảng `"questions"` với `"question_id"` ghi đúng số câu trên giấy (ví dụ `"Câu 1"`, `"Câu 1a"`, `"Câu 2"`, `"Câu 3"`). Không gộp chung các câu khác nhau vào 1 `Q1`!
+2. TRUNG THỰC TUYỆT ĐỐI — CẤM TỰ SỬA BÀI HỌC SINH & BỎ QUA MỰC ĐỎ GIÁO VIÊN:
    - Ghi lại CHÍNH XÁC những gì học sinh thực sự viết trên giấy, KỂ CẢ KHI học sinh tính sai, viết sai dấu, hoặc thiếu bước!
-   - TUYỆT ĐỐI KHÔNG tự sửa đáp số sai thành đúng ở bước OCR.
-3. PHÁT HIỆN NÉT GẠCH XÓA / NHÁP BỎ (`is_strikethrough`):
+   - TUYỆT ĐỐI KHÔNG đọc hoặc tính các dấu tích (`✓`, `đ`), con điểm mực đỏ của giáo viên ở lề giấy vào bài làm của học sinh.
+3. PHÁT HIỆN HƯỚNG XOAY ẢNH & DẤU HIỆU NHẬN DẠNG BÀI THI (QUAN TRỌNG ĐỂ TÁCH HỌC SINH):
+   - `"orientation_deg"`: góc cần xoay **theo chiều kim đồng hồ** (`0`, `90`, `180`, hoặc `270`) để chữ trên ảnh đứng thẳng đọc bình thường từ trái sang phải, trên xuống dưới. Ví dụ: ảnh đã thẳng đứng = `0`; ảnh chụp bị nằm ngang cần xoay 90° theo chiều kim đồng hồ mới đứng = `90`; cần xoay ngược chiều kim đồng hồ 90° = `270`.
+   - `"paper_brand_detected"`: tên nhãn hiệu giấy/vở in ở góc/mép giấy nếu nhìn thấy (vd `"HAI TIEN"`, `"KOKUYO"`, `"KLONG"`, `"ClassMate"`, `"THIEN LONG"`, `"CAMPUS"`, để rỗng `""` nếu không thấy).
+   - `"handwriting_style"`: mô tả ngắn 3-6 từ về nét chữ & màu mực (vd `"chữ tròn nhỏ mực xanh đậm"`).
+4. PHÁT HIỆN NÉT GẠCH XÓA / NHÁP BỎ (`is_strikethrough`):
    - Nếu học sinh gạch chéo, gạch ngang bỏ một dòng hoặc đoạn làm nhầm: vẫn ghi nhận nhưng BẮT BUỘC đặt `"line_type": "scratch"` và `"is_strikethrough": true`.
-4. CHUẨN HÓA CÔNG THỨC TOÁN HỌC LATEX:
+5. CHUẨN HÓA CÔNG THỨC TOÁN HỌC LATEX:
    - Phân thức dùng `\\frac{tử}{mẫu}` đầy đủ tử và mẫu; căn bậc hai `\\sqrt{...}`; dấu suy ra `\\Rightarrow`; tương đương `\\Leftrightarrow`; khác `\\neq`; nhỏ hơn/lớn hơn hoặc bằng `\\le`, `\\ge`.
    - Hệ phương trình có dấu ngoặc nhọn BẮT BUỘC dùng `\\begin{cases} pt1 \\\\ pt2 \\end{cases}`. Không dùng `\\{` đơn lẻ chưa đóng ngoặc.
    - Chú ý phân biệt chữ số viết tay dễ nhầm trong ngữ cảnh Toán học (ví dụ số 9 vs g/q, số 5 vs s, số 2 vs z, dấu trừ `-` vs dấu cộng `+`).
-5. PHÂN LOẠI `line_type`:
+6. PHÂN LOẠI `line_type`:
    - `"condition"`: Đặt điều kiện xác định (ĐKXĐ), điều kiện của ẩn.
    - `"equation"`: Phương trình, bất phương trình, biểu thức, bước biến đổi đại số.
    - `"text"`: Lời văn giải thích, gọi ẩn, lập luận.
@@ -67,7 +72,10 @@ OUTPUT FORMAT — CHỈ TRẢ VỀ JSON HỢP LỆ:
 {
   "student_name_detected": "<Họ tên học sinh đọc ở đầu trang, để rỗng nếu không có>",
   "student_class_detected": "<Lớp học sinh đọc ở đầu trang, để rỗng nếu không có>",
-  "grade_level": "<Khối lớp nếu nhận diện được, ví dụ: Toán 9>",
+  "paper_brand_detected": "<Tên hãng giấy in trên mép tờ giấy nếu có, vd HAI TIEN, KOKUYO, KLONG, ClassMate, THIEN LONG; để rỗng nếu không thấy>",
+  "handwriting_style": "<Mô tả ngắn nét chữ và màu mực>",
+  "orientation_deg": 0,
+  "grade_level": "<Khối lớp nếu nhận diện được, ví dụ: Toán 7>",
   "title": "<Đề bài đọc từ ảnh nếu có>",
   "questions": [
     {
@@ -113,6 +121,60 @@ def clean_and_normalize_math_latex(latex_str: str) -> str:
     return s
 
 
+_LATEX_BS_CMD_RE = re.compile(
+    r"^(?:frac|text|times|to|tau|theta|neq|nu|nabla|begin|beta|boxed|bar|binom|right|rightarrow|rho|radical)\b"
+)
+
+
+def _repair_json_backslashes(s: str) -> str:
+    """
+    Quét tuyến tính từ trái sang phải để sửa lỗi escape backslash LaTeX trong JSON từ LLM:
+    - Giữ nguyên mọi cặp escape hợp lệ (\\\\, \\\", \\/, \\uXXXX, \\n, \\t...) — KHÔNG phá \\\\Rightarrow thành \\\\\\Rightarrow.
+    - Tự nhân đôi dấu \\ đơn đứng trước lệnh LaTeX (\\Rightarrow, \\underline, \\frac, \\begin, \\neq, \\text, \\{, \\}...).
+    """
+    out: list[str] = []
+    i = 0
+    n = len(s)
+    while i < n:
+        ch = s[i]
+        if ch == "\\":
+            if i + 1 < n:
+                nxt = s[i + 1]
+                if nxt in ('"', "\\", "/"):
+                    out.append(ch)
+                    out.append(nxt)
+                    i += 2
+                    continue
+                if nxt == "u" and i + 5 < n and all(c in "0123456789abcdefABCDEF" for c in s[i + 2 : i + 6]):
+                    out.append(s[i : i + 6])
+                    i += 6
+                    continue
+                if nxt in ("b", "f", "n", "r", "t"):
+                    if _LATEX_BS_CMD_RE.match(s[i + 1 : i + 14]):
+                        out.append("\\\\")
+                        i += 1
+                        continue
+                    out.append(ch)
+                    out.append(nxt)
+                    i += 2
+                    continue
+            out.append("\\\\")
+            i += 1
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
+def _safe_json_loads(s: str):
+    """Parse JSON chịu lỗi backslash LaTeX và ký tự điều khiển từ LLM."""
+    try:
+        return json.loads(s, strict=False)
+    except json.JSONDecodeError:
+        repaired = _repair_json_backslashes(s)
+        return json.loads(repaired, strict=False)
+
+
 def parse_and_validate_ocr_json(raw_text: str) -> list[ExtractedQuestion]:
     """
     Parser & Validator:
@@ -125,12 +187,12 @@ def parse_and_validate_ocr_json(raw_text: str) -> list[ExtractedQuestion]:
         text = text.strip()
 
     try:
-        data = json.loads(text)
+        data = _safe_json_loads(text)
     except json.JSONDecodeError:
         m_arr = re.search(r"\[\s*\{.*\}\s*\]", text, re.DOTALL)
         if m_arr:
             try:
-                data = json.loads(m_arr.group(0))
+                data = _safe_json_loads(m_arr.group(0))
             except json.JSONDecodeError as exc:
                 raise JSONParseError(f"Không thể giải mã mảng JSON OCR: {exc}")
         else:
@@ -141,7 +203,7 @@ def parse_and_validate_ocr_json(raw_text: str) -> list[ExtractedQuestion]:
             )
             if m_dict:
                 try:
-                    data = json.loads(m_dict.group(0))
+                    data = _safe_json_loads(m_dict.group(0))
                 except json.JSONDecodeError as exc:
                     raise JSONParseError(f"Không thể giải mã đối tượng JSON OCR: {exc}")
             else:
@@ -151,12 +213,22 @@ def parse_and_validate_ocr_json(raw_text: str) -> list[ExtractedQuestion]:
     root_text = ""
     root_student_name = ""
     root_student_class = ""
+    root_paper_brand = ""
+    root_handwriting = ""
+    root_orientation = 0
     if not isinstance(data, list):
         if isinstance(data, dict):
             root_grade = str(data.get("grade_level") or "")
             root_text = str(data.get("title") or data.get("question_text") or "")
             root_student_name = str(data.get("student_name_detected") or "")
             root_student_class = str(data.get("student_class_detected") or "")
+            root_paper_brand = str(data.get("paper_brand_detected") or "")
+            root_handwriting = str(data.get("handwriting_style") or "")
+            try:
+                deg = int(data.get("orientation_deg") or 0)
+                root_orientation = deg if deg in (0, 90, 180, 270) else 0
+            except Exception:
+                root_orientation = 0
             data = data.get("questions", [data])
         else:
             raise JSONParseError("Kết quả OCR phải là danh sách câu hỏi (JSON array).")
@@ -237,6 +309,9 @@ def parse_and_validate_ocr_json(raw_text: str) -> list[ExtractedQuestion]:
             grade_level=str(item.get("grade_level") or root_grade or ""),
             student_name_detected=str(item.get("student_name_detected") or root_student_name or ""),
             student_class_detected=str(item.get("student_class_detected") or root_student_class or ""),
+            paper_brand_detected=str(item.get("paper_brand_detected") or root_paper_brand or ""),
+            handwriting_style=str(item.get("handwriting_style") or root_handwriting or ""),
+            orientation_deg=root_orientation,
             confidence=q_conf,
             overall_confidence=q_conf,
             has_unclear=has_unclear,
@@ -273,6 +348,14 @@ class VisionOcrAgent:
         self.openai_api_key = settings.OPENAI_API_KEY
         self.model_name = settings.DEFAULT_VISION_MODEL
         self.openai_model = settings.DEFAULT_OPENAI_MODEL
+        self.last_usage: dict = {
+            "provider": "mock",
+            "model": "mock",
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "thinking_tokens": 0,
+            "total_tokens": 0,
+        }
 
     @property
     def has_openai_live(self) -> bool:
@@ -307,6 +390,34 @@ class VisionOcrAgent:
         """Trích xuất toàn bộ bài làm từ 1 ảnh."""
         return self.extract_latex_multipage([image_bytes], applied_transforms=applied_transforms, scenario=scenario)
 
+    def extract_latex_with_usage(
+        self,
+        image_bytes: bytes,
+        applied_transforms: list[str] | None = None,
+        scenario: str = "default",
+    ) -> tuple[list[ExtractedQuestion], dict]:
+        """Phiên bản thread-safe trả về đồng thời (questions, usage_dict) cho xử lý song song folder."""
+        provider = self._active_provider()
+        usage_out: dict = {
+            "provider": provider,
+            "model": "mock",
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "thinking_tokens": 0,
+            "total_tokens": 0,
+        }
+        if provider == "openai":
+            qs = self._call_openai_vision_with_retry([image_bytes], usage_sink=usage_out)
+            self.last_usage = dict(usage_out)
+            return qs, usage_out
+        if provider == "gemini":
+            qs = self._call_gemini_vision_with_retry([image_bytes], usage_sink=usage_out)
+            self.last_usage = dict(usage_out)
+            return qs, usage_out
+        qs = self._mock_extraction(scenario=scenario)
+        self.last_usage = dict(usage_out)
+        return qs, usage_out
+
     def extract_latex_multipage(
         self,
         pages_bytes: list[bytes],
@@ -319,6 +430,14 @@ class VisionOcrAgent:
         - Nếu ĐÃ cài Live API Key mà API lỗi: NÉM OCRApiError tường minh (CẤM âm thầm trả bài mẫu giả!).
         """
         provider = self._active_provider()
+        self.last_usage = {
+            "provider": provider,
+            "model": "mock",
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "thinking_tokens": 0,
+            "total_tokens": 0,
+        }
         if provider == "openai":
             return self._call_openai_vision_with_retry(pages_bytes)
         if provider == "gemini":
@@ -329,6 +448,7 @@ class VisionOcrAgent:
         self,
         pages_bytes: list[bytes],
         max_retries: int = 3,
+        usage_sink: dict | None = None,
     ) -> list[ExtractedQuestion]:
         """Gọi OpenAI Vision API cho 1 hoặc nhiều trang kèm exponential backoff."""
         from openai import OpenAI
@@ -369,9 +489,29 @@ class VisionOcrAgent:
                     max_tokens=4096,
                 )
                 raw_content = resp.choices[0].message.content or ""
+                usage = getattr(resp, "usage", None)
+                if usage:
+                    in_t = int(getattr(usage, "prompt_tokens", 0) or 0)
+                    out_t = int(getattr(usage, "completion_tokens", 0) or 0)
+                    tot_t = int(getattr(usage, "total_tokens", in_t + out_t) or (in_t + out_t))
+                    u = {
+                        "provider": "openai",
+                        "model": self.openai_model,
+                        "input_tokens": in_t,
+                        "output_tokens": out_t,
+                        "thinking_tokens": 0,
+                        "total_tokens": tot_t,
+                    }
+                    self.last_usage = u
+                    if usage_sink is not None:
+                        usage_sink.update(u)
                 return parse_and_validate_ocr_json(raw_content)
             except Exception as e:
                 last_exc = e
+                err_s = str(e)
+                # Lỗi 400/401/403/404 không thể tự hết khi retry -> báo lỗi ngay
+                if any(code in err_s for code in ("404", "400", "401", "403", "NOT_FOUND", "INVALID_ARGUMENT")):
+                    break
                 if attempt == max_retries:
                     break
                 time.sleep(delay)
@@ -384,9 +524,10 @@ class VisionOcrAgent:
     def _call_gemini_vision_with_retry(
         self,
         pages_bytes: list[bytes],
-        max_retries: int = 3,
+        max_retries: int = 2,
+        usage_sink: dict | None = None,
     ) -> list[ExtractedQuestion]:
-        """Gọi Gemini Vision API cho 1 hoặc nhiều trang kèm exponential backoff."""
+        """Gọi Gemini Vision API kèm fallback tự động giữa các model khi gặp 503/429/404."""
         from google import genai
         from google.genai import types
 
@@ -398,32 +539,92 @@ class VisionOcrAgent:
             contents.append(types.Part.from_bytes(data=opt_bytes, mime_type="image/jpeg"))
         contents.append(FULL_PAGE_HANDWRITING_OCR_PROMPT)
 
-        delay = 1.0
+        # Chuỗi fallback chỉ gồm các model có quota thật (loại bỏ Pro limit=0 trên Free Tier)
+        candidate_models: list[str] = []
+        for m in (
+            self.model_name,
+            "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite",
+            "gemini-3.1-flash-lite-preview",
+        ):
+            if m and m not in candidate_models:
+                candidate_models.append(m)
+
         last_exc: Exception | None = None
-        for attempt in range(1, max_retries + 1):
-            try:
-                response = client.models.generate_content(
-                    model=self.model_name,
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        temperature=0.0,
-                        max_output_tokens=4096,
-                    ),
-                )
-                if not response.text:
-                    raise GeminiAPIError("Gemini API trả về nội dung rỗng.", error_code="E008")
-                return parse_and_validate_ocr_json(response.text)
-            except Exception as e:
-                last_exc = e
-                if attempt == max_retries:
-                    break
-                time.sleep(delay)
-                delay *= 2.0
+        for model_id in candidate_models:
+            delay = 1.5
+            for attempt in range(1, max_retries + 1):
+                try:
+                    # Tắt thinking budget cho bước OCR thuần để giảm độ trễ từ ~15s xuống ~3-5s
+                    cfg_kwargs: dict = {
+                        "response_mime_type": "application/json",
+                        "temperature": 0.0,
+                        "max_output_tokens": 8192,
+                    }
+                    try:
+                        cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+                    except Exception:
+                        pass
+
+                    try:
+                        response = client.models.generate_content(
+                            model=model_id,
+                            contents=contents,
+                            config=types.GenerateContentConfig(**cfg_kwargs),
+                        )
+                    except Exception as tc_err:
+                        if "thinking" in str(tc_err).lower() and "thinking_config" in cfg_kwargs:
+                            cfg_kwargs.pop("thinking_config", None)
+                            response = client.models.generate_content(
+                                model=model_id,
+                                contents=contents,
+                                config=types.GenerateContentConfig(**cfg_kwargs),
+                            )
+                        else:
+                            raise
+
+                    if not response.text:
+                        raise GeminiAPIError("Gemini API trả về nội dung rỗng.", error_code="E008")
+                    um = getattr(response, "usage_metadata", None)
+                    if um:
+                        in_t = int(getattr(um, "prompt_token_count", 0) or 0)
+                        out_t = int(getattr(um, "candidates_token_count", 0) or 0)
+                        th_t = int(getattr(um, "thoughts_token_count", 0) or 0)
+                        tot_t = int(getattr(um, "total_token_count", in_t + out_t + th_t) or (in_t + out_t + th_t))
+                        u = {
+                            "provider": "gemini",
+                            "model": model_id,
+                            "input_tokens": in_t,
+                            "output_tokens": out_t,
+                            "thinking_tokens": th_t,
+                            "total_tokens": tot_t,
+                        }
+                        self.last_usage = u
+                        if usage_sink is not None:
+                            usage_sink.update(u)
+                    return parse_and_validate_ocr_json(response.text)
+                except Exception as e:
+                    last_exc = e
+                    err_s = str(e)
+                    # Lỗi xác thực key (401/403) -> dừng ngay
+                    if any(code in err_s for code in ("401", "403", "API_KEY_INVALID")):
+                        raise GeminiAPIError(f"Gemini API Key không hợp lệ: {err_s}", error_code="E008")
+                    # Model 404 hoặc 429 hết quota -> chuyển NGAY sang model dự phòng kế tiếp (không lãng phí sleep)
+                    if any(code in err_s for code in ("404", "NOT_FOUND", "429", "RESOURCE_EXHAUSTED", "limit: 0")):
+                        print(f"[Agent 1 Fallback] Model {model_id} hết quota/không khả dụng, chuyển ngay sang model kế tiếp...")
+                        break
+                    # 503 tạm thời: thử lại 1 lần sau delay ngắn, nếu vẫn lỗi thì chuyển model kế tiếp
+                    if attempt < max_retries:
+                        print(f"[Agent 1 Retry] Model {model_id} gặp lỗi tạm ({err_s[:80]}), thử lại sau {delay}s...")
+                        time.sleep(delay)
+                        delay *= 2.0
+                    else:
+                        print(f"[Agent 1 Fallback] Model {model_id} quá tải, chuyển model dự phòng kế tiếp...")
+                        break
 
         err_msg = str(last_exc or "Unknown Gemini Vision error")
         err_code = "E006" if ("429" in err_msg or "quota" in err_msg.lower() or "resource" in err_msg.lower()) else "E008"
-        raise GeminiAPIError(f"Gemini Vision OCR thất bại sau {max_retries} lần thử: {err_msg}", error_code=err_code)
+        raise GeminiAPIError(f"Gemini Vision OCR thất bại trên toàn bộ các model dự phòng: {err_msg}", error_code=err_code)
 
     def _mock_extraction(self, scenario: str = "default") -> list[ExtractedQuestion]:
         """Mock engine dùng cho unit test & demo offline khi chưa cấu hình API key."""

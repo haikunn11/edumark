@@ -55,18 +55,25 @@ def _active_lines_of(question: ExtractedQuestion):
     return [l for l in question.lines if not l.is_strikethrough and l.line_type != LineType.SCRATCH]
 
 
-def _extract_json_dict(text: str) -> dict:
+from backend.app.services.agent1_ocr import _repair_json_backslashes
+
+
+def _extract_json_dict(text: str) -> dict | list:
     cleaned = text.strip()
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r"\s*```$", "", cleaned).strip()
     try:
-        return json.loads(cleaned)
+        return json.loads(cleaned, strict=False)
     except json.JSONDecodeError:
-        m = re.search(r"\{.*\}", cleaned, re.DOTALL)
-        if m:
-            return json.loads(m.group(0))
-        raise ValueError("Không tìm thấy cấu trúc JSON hợp lệ từ phản hồi chấm bài.")
+        repaired = _repair_json_backslashes(cleaned)
+        try:
+            return json.loads(repaired, strict=False)
+        except json.JSONDecodeError:
+            m = re.search(r"(\{.*\}|\[.*\])", repaired, re.DOTALL)
+            if m:
+                return json.loads(m.group(0), strict=False)
+            raise ValueError("Không tìm thấy cấu trúc JSON hợp lệ từ phản hồi chấm bài.")
 
 
 class ReasoningGradingAgent:
@@ -77,6 +84,24 @@ class ReasoningGradingAgent:
         self.openai_api_key = settings.OPENAI_API_KEY
         self.model_name = settings.DEFAULT_REASONING_MODEL
         self.openai_model = settings.DEFAULT_OPENAI_MODEL
+        self.last_usage: dict = {
+            "provider": "rule",
+            "model": "rule-based",
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "thinking_tokens": 0,
+            "total_tokens": 0,
+        }
+
+    def reset_last_usage(self) -> None:
+        self.last_usage = {
+            "provider": "rule",
+            "model": "rule-based",
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "thinking_tokens": 0,
+            "total_tokens": 0,
+        }
 
     @property
     def has_openai_live(self) -> bool:
@@ -140,6 +165,144 @@ class ReasoningGradingAgent:
                     print(f"[Agent 2 Warning] Gemini Reasoning failed: {e}. Falling back to Rule Engine.")
 
         return self._grade_with_rules(question, rubric, run_self_critique, math_verification)
+
+    def grade_auto_rubric_multi(
+        self,
+        questions: list[ExtractedQuestion],
+        mv_map: dict[str, MathVerificationSummary] | None = None,
+    ) -> tuple[str, list[QuestionGradingResult]]:
+        """
+        Chấm TRỌN BỘ bài làm gồm nhiều câu hỏi (sau khi đã sắp xếp lại từ Folder lộn xộn)
+        trong MỘT lần gọi LLM duy nhất để vừa nhanh vừa phân bổ thang điểm 10.0đ hợp lý.
+        """
+        if not questions:
+            return "Bài thi trống", []
+        if len(questions) == 1:
+            mv = mv_map.get(questions[0].question_id) if mv_map else None
+            title, single_res = self.grade_auto_rubric(questions[0], math_verification=mv)
+            return title, [single_res]
+
+        provider = self._active_provider()
+        if provider == "mock":
+            # Offline fallback: chấm từng câu bằng rule engine, chia đều 10.0đ
+            per_q = round(10.0 / len(questions), 2)
+            results: list[QuestionGradingResult] = []
+            for idx, q in enumerate(questions):
+                pts = round(10.0 - per_q * (len(questions) - 1), 2) if idx == len(questions) - 1 else per_q
+                rubric = QuestionRubric(
+                    question_id=q.question_id,
+                    question_text=q.question_text or f"Giải {q.question_id}",
+                    max_score=pts,
+                    total_points=pts,
+                    criteria=[
+                        RubricCriterion(criterion_id=f"{q.question_id}_C1_BIEN_DOI", name="Biến đổi và lời giải", max_score=round(pts * 0.7, 2)),
+                        RubricCriterion(criterion_id=f"{q.question_id}_C2_KET_LUAN", name="Kết luận", max_score=round(pts - round(pts * 0.7, 2), 2)),
+                    ],
+                )
+                q_mv = mv_map.get(q.question_id) if mv_map else None
+                results.append(self._grade_with_rules(q, rubric, math_verification=q_mv))
+            return f"Bài thi Toán ({len(questions)} câu — Chế độ Offline)", results
+
+        # Build 1 prompt duy nhất chứa toàn bộ các câu đã sắp đúng thứ tự Câu 1 -> 2 -> 3...
+        blocks: list[str] = []
+        for q in questions:
+            src_note = f" [Từ ảnh: {', '.join(q.source_files)}]" if q.source_files else ""
+            blocks.append(f"=== {q.question_id}: {q.question_text or 'Bài làm học sinh'}{src_note} ===")
+            for l in _active_lines_of(q):
+                blocks.append(f"  Dòng {l.line_no} [{l.line_type.value}]: {l.raw_text or l.latex}")
+            q_mv = mv_map.get(q.question_id) if mv_map else None
+            if q_mv and q_mv.equations_checked > 0:
+                blocks.append(f"  [SymPy kiểm chứng {q.question_id}]: {q_mv.summary}")
+
+        all_solutions = "\n".join(blocks)
+        prompt = f"""Bạn là Giám khảo chấm thi môn Toán THCS/THPT Việt Nam.
+Dưới đây là toàn bộ bài làm của 1 học sinh đã được hệ thống gom từ nhiều ảnh chụp và sắp xếp lại ĐÚNG THỨ TỰ CÂU HỎI:
+
+{all_solutions}
+
+NHIỆM VỤ:
+1. Chấm ĐỘC LẬP TỪNG CÂU HỎI đúng theo `question_id` đã liệt kê ở trên (KHÔNG gộp câu, KHÔNG bỏ sót câu nào).
+2. Phân bổ hợp lý tổng thang điểm 10.0đ cho tất cả các câu (hoặc tổng điểm thực tế nếu đề có ghi sẵn điểm từng câu).
+3. Đối chiếu với kết quả kiểm chứng SymPy cho từng câu. Nếu có bước tính sai, chỉ rõ dòng sai và áp dụng Error Propagation (bảo lưu 50% điểm phương pháp các bước sau).
+4. Mọi công thức Toán đặt trong cặp dấu `$...$` để KaTeX hiển thị chuẩn.
+
+TRẢ VỀ JSON HỢP LỆ:
+{{
+  "detected_exam_title": "<Tên bài kiểm tra và khối lớp>",
+  "questions": [
+    {{
+      "question_id": "Câu 1",
+      "total_points": 3.0,
+      "suggested_score": 2.5,
+      "error_propagation_detected": false,
+      "affected_steps": [],
+      "confidence": 0.95,
+      "confidence_level": "green",
+      "teacher_summary_comment": "<Nhận xét sư phạm riêng cho câu này>",
+      "criteria_evaluations": [
+        {{
+          "criterion_id": "C1_1",
+          "name": "<Tên bước chấm>",
+          "score": 1.5,
+          "max_score": 1.5,
+          "status": "passed",
+          "error_type": "none",
+          "feedback": "<Nhận xét chi tiết>"
+        }}
+      ]
+    }}
+  ]
+}}
+"""
+        if provider == "openai":
+            from openai import OpenAI
+            client = OpenAI(api_key=self.openai_api_key, timeout=45.0)
+            resp = client.chat.completions.create(
+                model=self.openai_model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.0,
+            )
+            usage = getattr(resp, "usage", None)
+            if usage:
+                in_t = int(getattr(usage, "prompt_tokens", 0) or 0)
+                out_t = int(getattr(usage, "completion_tokens", 0) or 0)
+                tot_t = int(getattr(usage, "total_tokens", in_t + out_t) or (in_t + out_t))
+                self.last_usage = {
+                    "provider": "openai",
+                    "model": self.openai_model,
+                    "input_tokens": in_t,
+                    "output_tokens": out_t,
+                    "thinking_tokens": 0,
+                    "total_tokens": tot_t,
+                }
+            data = _extract_json_dict(resp.choices[0].message.content or "")
+        else:
+            data = self._generate_gemini_json(prompt)
+
+        # Một số phiên bản Gemini bọc toàn bộ object kết quả trong list 1 phần tử: [{"detected_exam_title": ..., "questions": [...]}]
+        if isinstance(data, list) and len(data) == 1 and isinstance(data[0], dict) and "questions" in data[0]:
+            data = data[0]
+
+        if isinstance(data, list):
+            exam_title = f"Bài kiểm tra Toán ({len(questions)} câu)"
+            raw_q_list = data
+        else:
+            exam_title = str(data.get("detected_exam_title", f"Bài kiểm tra Toán ({len(questions)} câu)"))
+            raw_q_list = data.get("questions", [])
+            if not raw_q_list and "criteria_evaluations" in data:
+                raw_q_list = [data]
+
+        parsed_results: list[QuestionGradingResult] = []
+        for idx, q_item in enumerate(raw_q_list):
+            if not isinstance(q_item, dict):
+                continue
+            fallback_qid = questions[idx].question_id if idx < len(questions) else f"Câu {idx + 1}"
+            qid = str(q_item.get("question_id") or fallback_qid)
+            _, q_res = self._parse_auto_rubric_response(q_item, qid)
+            parsed_results.append(q_res)
+
+        return exam_title, parsed_results
 
     def grade_auto_rubric(
         self,
@@ -299,31 +462,103 @@ TRẢ VỀ JSON HỢP LỆ:
             response_format={"type": "json_object"},
             temperature=0.0,
         )
+        usage = getattr(response, "usage", None)
+        if usage:
+            in_t = int(getattr(usage, "prompt_tokens", 0) or 0)
+            out_t = int(getattr(usage, "completion_tokens", 0) or 0)
+            tot_t = int(getattr(usage, "total_tokens", in_t + out_t) or (in_t + out_t))
+            self.last_usage = {
+                "provider": "openai",
+                "model": self.openai_model,
+                "input_tokens": in_t,
+                "output_tokens": out_t,
+                "thinking_tokens": 0,
+                "total_tokens": tot_t,
+            }
         data = _extract_json_dict(response.choices[0].message.content or "")
         return self._parse_auto_rubric_response(data, primary_qid)
+
+    def _generate_gemini_json(self, prompt: str) -> dict:
+        """Gọi Gemini Reasoning kèm chuỗi model fallback tự động & tối ưu thinking_budget để nhanh."""
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=self.api_key)
+        candidate_models: list[str] = []
+        for m in (
+            self.model_name,
+            "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite",
+            "gemini-3.1-flash-lite-preview",
+        ):
+            if m and m not in candidate_models:
+                candidate_models.append(m)
+
+        last_exc: Exception | None = None
+        for model_id in candidate_models:
+            try:
+                cfg_kwargs: dict = {
+                    "response_mime_type": "application/json",
+                    "temperature": 0.0,
+                }
+                try:
+                    # Giới hạn thinking budget nhỏ (256) giúp chấm nhanh ~2-4s mà vẫn chuẩn toán
+                    cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=256)
+                except Exception:
+                    pass
+
+                try:
+                    response = client.models.generate_content(
+                        model=model_id,
+                        contents=[prompt],
+                        config=types.GenerateContentConfig(**cfg_kwargs),
+                    )
+                except Exception as tc_err:
+                    if "thinking" in str(tc_err).lower() and "thinking_config" in cfg_kwargs:
+                        cfg_kwargs.pop("thinking_config", None)
+                        response = client.models.generate_content(
+                            model=model_id,
+                            contents=[prompt],
+                            config=types.GenerateContentConfig(**cfg_kwargs),
+                        )
+                    else:
+                        raise
+
+                self.model_name = model_id
+                um = getattr(response, "usage_metadata", None)
+                if um:
+                    in_t = int(getattr(um, "prompt_token_count", 0) or 0)
+                    out_t = int(getattr(um, "candidates_token_count", 0) or 0)
+                    th_t = int(getattr(um, "thoughts_token_count", 0) or 0)
+                    tot_t = int(getattr(um, "total_token_count", in_t + out_t + th_t) or (in_t + out_t + th_t))
+                    self.last_usage = {
+                        "provider": "gemini",
+                        "model": model_id,
+                        "input_tokens": in_t,
+                        "output_tokens": out_t,
+                        "thinking_tokens": th_t,
+                        "total_tokens": tot_t,
+                    }
+                return _extract_json_dict(response.text or "")
+            except Exception as e:
+                last_exc = e
+                err_s = str(e)
+                if any(code in err_s for code in ("401", "403", "API_KEY_INVALID")):
+                    raise
+                print(f"[Agent 2 Fallback] Model {model_id} lỗi ({err_s[:100]}), thử model kế tiếp...")
+                continue
+
+        raise last_exc or RuntimeError("Gemini Reasoning thất bại trên tất cả model dự phòng.")
 
     def _call_gemini_auto_reasoning_grader(
         self,
         question: ExtractedQuestion | list[ExtractedQuestion],
         math_verification: MathVerificationSummary | None = None,
     ) -> tuple[str, QuestionGradingResult]:
-        from google import genai
-        from google.genai import types
-
-        client = genai.Client(api_key=self.api_key)
         q_list = question if isinstance(question, list) else [question]
         primary_qid = q_list[0].question_id if q_list else "Q1"
         prompt = self._build_auto_rubric_prompt(q_list, math_verification)
-
-        response = client.models.generate_content(
-            model=self.model_name,
-            contents=[prompt],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.0,
-            ),
-        )
-        data = _extract_json_dict(response.text or "")
+        data = self._generate_gemini_json(prompt)
         return self._parse_auto_rubric_response(data, primary_qid)
 
     def _build_rubric_prompt(
@@ -436,6 +671,19 @@ TRẢ VỀ JSON HỢP LỆ:
             response_format={"type": "json_object"},
             temperature=0.0,
         )
+        usage = getattr(response, "usage", None)
+        if usage:
+            in_t = int(getattr(usage, "prompt_tokens", 0) or 0)
+            out_t = int(getattr(usage, "completion_tokens", 0) or 0)
+            tot_t = int(getattr(usage, "total_tokens", in_t + out_t) or (in_t + out_t))
+            self.last_usage = {
+                "provider": "openai",
+                "model": self.openai_model,
+                "input_tokens": in_t,
+                "output_tokens": out_t,
+                "thinking_tokens": 0,
+                "total_tokens": tot_t,
+            }
         data = _extract_json_dict(response.choices[0].message.content or "")
         return self._parse_rubric_response(data, rubric)
 
@@ -445,20 +693,8 @@ TRẢ VỀ JSON HỢP LỆ:
         rubric: QuestionRubric,
         math_verification: MathVerificationSummary | None = None,
     ) -> QuestionGradingResult:
-        from google import genai
-        from google.genai import types
-
-        client = genai.Client(api_key=self.api_key)
         prompt = self._build_rubric_prompt(question, rubric, math_verification)
-        response = client.models.generate_content(
-            model=self.model_name,
-            contents=[prompt],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.0,
-            ),
-        )
-        data = _extract_json_dict(response.text or "")
+        data = self._generate_gemini_json(prompt)
         return self._parse_rubric_response(data, rubric)
 
     def _grade_with_rules(

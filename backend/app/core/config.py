@@ -4,6 +4,7 @@ import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_PROJECT_ROOT = os.path.dirname(_BACKEND_DIR)
 _DATA_DIR = os.path.join(_BACKEND_DIR, "data")
 
 
@@ -22,8 +23,8 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     DEFAULT_OPENAI_MODEL: str = os.getenv("DEFAULT_OPENAI_MODEL", "gpt-4o-mini")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    DEFAULT_VISION_MODEL: str = os.getenv("DEFAULT_VISION_MODEL", "gemini-2.0-flash")
-    DEFAULT_REASONING_MODEL: str = os.getenv("DEFAULT_REASONING_MODEL", "gemini-2.0-flash")
+    DEFAULT_VISION_MODEL: str = os.getenv("DEFAULT_VISION_MODEL", "gemini-3.1-flash-lite")
+    DEFAULT_REASONING_MODEL: str = os.getenv("DEFAULT_REASONING_MODEL", "gemini-3-flash-preview")
 
     # Storage, Database & Cache Settings
     UPLOAD_DIR: str = os.path.join(_DATA_DIR, "uploads")
@@ -39,7 +40,7 @@ class Settings(BaseSettings):
     MIN_CONFIDENCE_AUTO_APPROVE: float = 0.90
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=os.path.join(_PROJECT_ROOT, ".env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",

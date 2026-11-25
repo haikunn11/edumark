@@ -107,6 +107,7 @@ class ExtractedLine(BaseModel):
     line_index: int = 0
     line_no: int = 1
     page_no: int = 1
+    source_file: str = ""
     raw_text: str = ""
     latex: str = ""
     raw_latex: str = ""
@@ -134,6 +135,10 @@ class ExtractedQuestion(BaseModel):
     grade_level: str = ""
     student_name_detected: str = ""
     student_class_detected: str = ""
+    paper_brand_detected: str = ""
+    handwriting_style: str = ""
+    orientation_deg: int = 0
+    source_files: list[str] = Field(default_factory=list)
     confidence: float = 1.0
     overall_confidence: float = 1.0
     has_unclear: bool = False
@@ -156,7 +161,7 @@ class OCRResult(BaseModel):
     image_hash: str = ""
     questions: list[ExtractedQuestion] = Field(default_factory=list)
     processing_time_ms: int = 0
-    model_used: str = "gemini-2.0-flash"
+    model_used: str = "gemini-3.8-flash"
     cached: bool = False
     ocr_warnings: list[str] = Field(default_factory=list)
 
@@ -168,6 +173,65 @@ class MathVerificationSummary(BaseModel):
     detected_roots: list[str] = Field(default_factory=list)
     issues: list[str] = Field(default_factory=list)
     summary: str = ""
+
+
+class ReassembledQuestionInfo(BaseModel):
+    question_id: str
+    source_files: list[str] = Field(default_factory=list)
+    line_count: int = 0
+    merged_from_multiple_pages: bool = False
+
+
+class FolderReassemblyReport(BaseModel):
+    total_files_scanned: int = 0
+    original_file_order: list[str] = Field(default_factory=list)
+    reordered_questions: list[ReassembledQuestionInfo] = Field(default_factory=list)
+    was_reordered: bool = False
+    merged_question_ids: list[str] = Field(default_factory=list)
+    output_folder_path: str = ""
+    sorted_output_files: list[str] = Field(default_factory=list)
+    cluster_label: str = ""
+    cluster_reason: str = ""
+    rotated_files: list[str] = Field(default_factory=list)
+    summary: str = ""
+
+
+class SmartFolderBatchResult(BaseModel):
+    batch_id: str
+    exam_id: str
+    total_images_scanned: int
+    total_students_detected: int
+    output_root_folder: str
+    excel_file_path: str = ""
+    rotated_images: list[str] = Field(default_factory=list)
+    telemetry: "GradingTelemetry"
+    students: list["SubmissionGradingRecord"] = Field(default_factory=list)
+    summary: str = ""
+
+
+class GradingTelemetry(BaseModel):
+    total_ms: int = 0
+    preprocess_ms: int = 0
+    ocr_ms: int = 0
+    sympy_ms: int = 0
+    grading_ms: int = 0
+    provider: str = "mock"
+    ocr_model: str = ""
+    grader_model: str = ""
+    ocr_input_tokens: int = 0
+    ocr_output_tokens: int = 0
+    ocr_thinking_tokens: int = 0
+    ocr_total_tokens: int = 0
+    grader_input_tokens: int = 0
+    grader_output_tokens: int = 0
+    grader_thinking_tokens: int = 0
+    grader_total_tokens: int = 0
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_thinking_tokens: int = 0
+    total_tokens: int = 0
+    estimated_cost_usd: float = 0.0
+    estimated_cost_vnd: float = 0.0
 
 
 class CriterionEvaluation(BaseModel):
@@ -272,6 +336,7 @@ class SubmissionGradingRecord(BaseModel):
     student_name: str = "Học sinh ẩn danh"
     detected_student_name: str = ""
     page_count: int = 1
+    page_files: list[str] = Field(default_factory=list)
     rubric_version: int = 1
     status: SubmissionStatus = SubmissionStatus.UPLOADED
     image_hash: str = ""
@@ -280,6 +345,8 @@ class SubmissionGradingRecord(BaseModel):
     quality: ImageQualityReport = Field(default_factory=ImageQualityReport)
     extracted_questions: list[ExtractedQuestion] = Field(default_factory=list)
     math_verification: MathVerificationSummary | None = None
+    folder_reassembly: FolderReassemblyReport | None = None
+    telemetry: GradingTelemetry = Field(default_factory=GradingTelemetry)
     question_results: list[QuestionGradingResult] = Field(default_factory=list)
     ai_total_score: float = 0.0
     total_points: float = 10.0
@@ -294,3 +361,6 @@ class TeacherReviewRequest(BaseModel):
     score_overrides: dict[str, float] = Field(default_factory=dict, description="question_id -> điểm mới")
     teacher_note: str | None = None
     approve: bool = True
+
+
+SmartFolderBatchResult.model_rebuild()

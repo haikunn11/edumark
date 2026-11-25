@@ -297,3 +297,24 @@ def test_v2_10_mobile_pwa_routes():
 
     r_sw = client.get("/static/sw.js")
     assert r_sw.status_code == 200
+
+
+def test_v2_11_telemetry_metrics_populated():
+    """V2-11: Mỗi lượt chấm phải trả về đầy đủ telemetry thời gian từng chặng, token và chi phí."""
+    img_bytes = _jpeg_bytes(_sharp_handwriting_image())
+    res = client.post(
+        "/api/v1/submissions/grade",
+        files={"file": ("tel_test.jpg", img_bytes, "image/jpeg")},
+        data={"exam_id": "TOAN9_01", "student_name": "Đo Hiệu Năng"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    tel = data["telemetry"]
+    assert tel["total_ms"] >= 0
+    assert tel["preprocess_ms"] >= 0
+    assert tel["ocr_ms"] >= 0
+    assert tel["sympy_ms"] >= 0
+    assert tel["grading_ms"] >= 0
+    assert "total_tokens" in tel
+    assert "estimated_cost_vnd" in tel
+

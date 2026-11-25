@@ -214,6 +214,84 @@ def remove_shadows(image: Image.Image) -> tuple[Image.Image, bool]:
         return image, False
 
 
+def detect_sideways_orientation_cw(image: Image.Image) -> int:
+    """
+    Phát hiện ảnh bài thi bị chụp xoay ngang 90° (không có EXIF tag) bằng OpenCV local (0 tốn token).
+    Trả về góc cần xoay theo chiều kim đồng hồ:
+      - 0: ảnh đã đứng thẳng (hoặc không đủ bằng chứng dòng kẻ/chữ nằm dọc).
+      - 270: cần xoay 270° CW (tức 90° ngược chiều kim đồng hồ) để đứng thẳng.
+      - 90: cần xoay 90° CW để đứng thẳng.
+    """
+    if not HAS_OPENCV:
+        return 0
+
+    try:
+        rgb = np.array(image.convert("RGB"), dtype=np.uint8)
+        h, w = rgb.shape[:2]
+        if min(h, w) < 200:
+            return 0
+
+        scale = 800.0 / float(max(h, w)) if max(h, w) > 800 else 1.0
+        small_rgb = cv2.resize(rgb, (int(w * scale), int(h * scale))) if scale < 1.0 else rgb
+        gray = cv2.cvtColor(small_rgb, cv2.COLOR_RGB2GRAY)
+
+        # 1. So sánh gradient ngang (gy: dòng kẻ ngang + dòng chữ) vs dọc (gx: dòng kẻ dọc khi chụp ngang 90°)
+        gx = float(np.mean(np.abs(cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3))))
+        gy = float(np.mean(np.abs(cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3))))
+        if gx < 1e-6 or (gy / gx) >= 0.78:
+            return 0
+
+        # 2. So sánh phương sai chiếu ngang vs chiếu dọc (projection profile)
+        blur = cv2.GaussianBlur(gray, (3, 3), 0)
+        bw = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 25, 10)
+        h_var = float(np.var(np.mean(bw, axis=1)))
+        v_var = float(np.var(np.mean(bw, axis=0)))
+        if v_var < 1e-6 or (h_var / v_var) >= 0.65:
+            return 0
+
+        # 3. Xác nhận qua độ dài đường thẳng Hough (dòng kẻ giấy thi nằm dọc áp đảo dòng ngang)
+        edges = cv2.Canny(gray, 30, 100)
+        lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=70, minLineLength=70, maxLineGap=15)
+        h_len = 0.0
+        v_len = 0.0
+        if lines is not None:
+            for x1, y1, x2, y2 in lines.reshape(-1, 4):
+                dx, dy = abs(int(x2) - int(x1)), abs(int(y2) - int(y1))
+                ang = float(np.degrees(np.arctan2(dy, dx)))
+                length = float(np.hypot(dx, dy))
+                if ang < 15.0:
+                    h_len += length
+                elif ang > 75.0:
+                    v_len += length
+
+        if v_len < max(1500.0, 2.0 * h_len):
+            return 0
+
+        # 4. Xác định chiều xoay (270° CW vs 90° CW) dựa trên mật độ mực viết tay ở góc đầu trang:
+        #    Học sinh viết từ trên-xuống & trái-sang-phải:
+        #    - Nếu trang bị xoay 90° CW (cần xoay 270° CW để dựng lại): đầu trang (top-left gốc) nằm ở góc TRÊN-PHẢI.
+        #    - Nếu trang bị xoay 90° CCW (cần xoay 90° CW để dựng lại): đầu trang (top-left gốc) nằm ở góc DƯỚI-TRÁI.
+        #    Loại bớt dòng kẻ dọc mỏng bằng morphological open để đo chủ yếu nét chữ viết tay.
+        sh, sw = bw.shape
+        vert_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 25))
+        ruled_lines = cv2.morphologyEx(bw, cv2.MORPH_OPEN, vert_kernel)
+        ink = cv2.subtract(bw, ruled_lines)
+        # Bỏ lề ngoài 5% để tránh viền bàn / nền tối
+        my, mx = max(1, int(sh * 0.05)), max(1, int(sw * 0.05))
+        ink_roi = ink[my : sh - my, mx : sw - mx]
+        rh, rw = ink_roi.shape
+
+        left_ink = float(np.mean(ink_roi[:, : rw // 2]))
+        right_ink = float(np.mean(ink_roi[:, rw // 2 :]))
+
+        # Đầu trang (phía trên của tờ giấy gốc) thường có mật độ viết dày hơn cuối trang (thường còn dòng trống):
+        # - Ảnh bị xoay 90° CW (cần xoay 270° CW để dựng đứng): đầu trang nằm bên PHẢI -> right_ink >= left_ink.
+        # - Ảnh bị xoay 90° CCW (cần xoay 90° CW để dựng đứng): đầu trang nằm bên TRÁI -> left_ink > right_ink.
+        return 270 if right_ink >= left_ink else 90
+    except Exception:
+        return 0
+
+
 def detect_and_deskew(image: Image.Image, max_angle_deg: float = 15.0) -> tuple[Image.Image, float]:
     """Phát hiện góc nghiêng bài làm và nắn thẳng (deskew) nếu góc lệch trong khoảng cho phép."""
     if not HAS_OPENCV:
@@ -311,6 +389,12 @@ class ImagePreprocessor:
             image, rotated_exif = normalize_exif(image)
             if rotated_exif:
                 applied_transforms.append("exif_orientation_normalized")
+
+            # 1b. Tự phát hiện & xoay đứng ảnh chụp ngang 90° không có EXIF tag (local OpenCV)
+            sideways_deg = detect_sideways_orientation_cw(image)
+            if sideways_deg in (90, 270):
+                image = image.rotate(-sideways_deg, expand=True)
+                applied_transforms.append(f"auto_rotated_{sideways_deg}deg_cw")
 
             # 2. Đánh giá độ sáng thô trước khi xử lý
             raw_gray = np.array(image.convert("L"), dtype=np.uint8)

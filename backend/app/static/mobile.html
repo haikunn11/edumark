@@ -141,6 +141,8 @@
           </div>
           <!-- SymPy Badge -->
           <div id="res-sympy-box" class="hidden mt-3 text-xs rounded-xl px-3 py-2 border"></div>
+          <!-- Telemetry Box -->
+          <div id="res-telemetry-box" class="hidden mt-3 p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-[11px] text-slate-300 space-y-1.5 font-mono"></div>
         </div>
 
         <!-- Full Handwriting Transcription -->
@@ -450,6 +452,31 @@
         mvBox.classList.remove('hidden');
       } else {
         mvBox.classList.add('hidden');
+      }
+
+      // Telemetry box (Thời gian, Token, Chi phí)
+      const telBox = document.getElementById('res-telemetry-box');
+      if (rec.telemetry) {
+        const t = rec.telemetry;
+        const sec = (ms) => (ms / 1000).toFixed(2) + 's';
+        telBox.innerHTML = `
+          <div class="flex items-center justify-between text-indigo-300 font-semibold">
+            <span>⏱️ Tổng: ${sec(t.total_ms)}</span>
+            <span>🪙 ${t.total_tokens.toLocaleString()} tok · ~${t.estimated_cost_vnd}đ</span>
+          </div>
+          <div class="grid grid-cols-4 gap-1 text-[10px] text-slate-400">
+            <span>Ảnh: ${sec(t.preprocess_ms)}</span>
+            <span>OCR: ${sec(t.ocr_ms)}</span>
+            <span>SymPy: ${t.sympy_ms}ms</span>
+            <span>Chấm: ${sec(t.grading_ms)}</span>
+          </div>
+          <div class="text-[10px] text-slate-400">
+            In: ${t.total_input_tokens} · Out: ${t.total_output_tokens} · Think: ${t.total_thinking_tokens} | Model: ${t.ocr_model}
+          </div>
+        `;
+        telBox.classList.remove('hidden');
+      } else {
+        telBox.classList.add('hidden');
       }
 
       // OCR Lines

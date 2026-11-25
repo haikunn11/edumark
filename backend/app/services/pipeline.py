@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from backend.app.models.schemas import (
@@ -9,6 +10,7 @@ from backend.app.models.schemas import (
     SubmissionGradingRecord,
     SubmissionStatus,
     ExtractedQuestion,
+    GradingTelemetry,
     ImageQualityReport,
     QuestionGradingResult,
 )
@@ -18,6 +20,23 @@ from backend.app.services.preprocessor import preprocessor
 from backend.app.services.agent1_ocr import vision_agent
 from backend.app.services.agent2_grader import reasoning_agent
 from backend.app.services.math_verifier import verify_question_math
+
+# Đơn giá tham khảo (USD / 1M tokens) để ước tính chi phí mỗi lượt chấm
+_MODEL_PRICING_PER_1M: dict[str, tuple[float, float]] = {
+    "gemini-3-flash-preview": (0.15, 0.60),
+    "gemini-3.1-flash-lite": (0.075, 0.30),
+    "gemini-3.1-pro-preview": (1.25, 5.00),
+    "gemini-flash-latest": (0.15, 0.60),
+    "gpt-4o-mini": (0.15, 0.60),
+}
+_VND_PER_USD = 25500.0
+
+
+def _estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
+    if not model or model in ("mock", "rule-based", "cache"):
+        return 0.0
+    in_price, out_price = _MODEL_PRICING_PER_1M.get(model, (0.15, 0.60))
+    return (input_tokens * in_price + output_tokens * out_price) / 1_000_000.0
 
 
 class AutomatedGradingPipeline:
@@ -54,6 +73,8 @@ class AutomatedGradingPipeline:
         if not pages_bytes:
             raise ValueError("Danh sách trang ảnh bài thi không được rỗng.")
 
+        t_total_start = time.perf_counter()
+
         sub_id = submission_id or f"sub_{uuid.uuid4().hex[:8]}"
         if len(pages_bytes) == 1:
             img_hash = compute_image_hash(pages_bytes[0])
@@ -77,6 +98,7 @@ class AutomatedGradingPipeline:
         )
 
         # --- BƯỚC 1: Tiền xử lý toàn bộ trang ảnh ---
+        t_pre_start = time.perf_counter()
         processed_pages: list[bytes] = []
         reports: list[ImageQualityReport] = []
         for idx, page_bytes in enumerate(pages_bytes, start=1):
@@ -85,8 +107,8 @@ class AutomatedGradingPipeline:
             reports.append(q_report)
             filename = f"{sub_id}.jpg" if idx == 1 else f"{sub_id}_p{idx}.jpg"
             self.storage.save_file(filename, proc_bytes, subfolder=rubric.exam_id)
+        preprocess_ms = int(round((time.perf_counter() - t_pre_start) * 1000))
 
-        # Gộp báo cáo chất lượng ảnh (nếu nhiều trang, lấy ngưỡng kém nhất để cảnh báo an toàn)
         primary_report = reports[0]
         all_transforms: list[str] = []
         all_warnings: list[str] = []
@@ -116,6 +138,7 @@ class AutomatedGradingPipeline:
             record.needs_teacher_review = True
 
         # --- BƯỚC 2: Agent 1 Vision OCR (với MD5 Caching) ---
+        t_ocr_start = time.perf_counter()
         is_live_key = self.vision_agent.is_live
         record.is_mock = not is_live_key
         cache_key_ocr = f"cache:ocr:{'live' if is_live_key else 'mock'}:{img_hash}"
@@ -124,6 +147,14 @@ class AutomatedGradingPipeline:
         if cached_extracted:
             extracted_questions = [ExtractedQuestion(**q) for q in cached_extracted]
             record.cache_hit = True
+            ocr_usage = {
+                "provider": "cache",
+                "model": "cache",
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "thinking_tokens": 0,
+                "total_tokens": 0,
+            }
         else:
             if len(processed_pages) == 1:
                 extracted_questions = self.vision_agent.extract_latex(
@@ -140,22 +171,32 @@ class AutomatedGradingPipeline:
                 [q.model_dump() for q in extracted_questions],
                 ttl_seconds=86400,
             )
+            ocr_usage = dict(getattr(self.vision_agent, "last_usage", {}))
+        ocr_ms = int(round((time.perf_counter() - t_ocr_start) * 1000))
 
         record.extracted_questions = extracted_questions
         record.status = SubmissionStatus.OCR_COMPLETED
 
-        # Tự điền tên học sinh nếu OCR đọc được từ phần đầu trang giấy thi
-        detected_name = next((q.student_name_detected.strip() for q in extracted_questions if q.student_name_detected.strip()), "")
+        detected_name = next(
+            (q.student_name_detected.strip() for q in extracted_questions if q.student_name_detected.strip()),
+            "",
+        )
         if detected_name:
             record.detected_student_name = detected_name
             if not student_name or student_name.strip() in ("", "Học sinh ẩn danh"):
                 record.student_name = detected_name
 
         # --- BƯỚC 3: Kiểm chứng toán học SymPy ---
+        t_sympy_start = time.perf_counter()
         primary_mv = verify_question_math(extracted_questions[0]) if extracted_questions else None
         record.math_verification = primary_mv
+        sympy_ms = int(round((time.perf_counter() - t_sympy_start) * 1000))
 
         # --- BƯỚC 4: Agent 2 Precision Grader ---
+        t_grade_start = time.perf_counter()
+        if hasattr(self.reasoning_agent, "reset_last_usage"):
+            self.reasoning_agent.reset_last_usage()
+
         if rubric.exam_id == "AUTO" or not rubric.questions:
             if extracted_questions:
                 exam_title, q_result = self.reasoning_agent.grade_auto_rubric(
@@ -215,6 +256,57 @@ class AutomatedGradingPipeline:
                 if q_result.needs_review:
                     any_review_needed = True
                 record.question_results.append(q_result)
+
+        grading_ms = int(round((time.perf_counter() - t_grade_start) * 1000))
+        grader_usage = dict(getattr(self.reasoning_agent, "last_usage", {}))
+        total_ms = int(round((time.perf_counter() - t_total_start) * 1000))
+
+        # --- Tổng hợp Telemetry (Thời gian, Token, Chi phí) ---
+        ocr_in = int(ocr_usage.get("input_tokens", 0) or 0)
+        ocr_out = int(ocr_usage.get("output_tokens", 0) or 0)
+        ocr_th = int(ocr_usage.get("thinking_tokens", 0) or 0)
+        ocr_tot = int(ocr_usage.get("total_tokens", ocr_in + ocr_out + ocr_th) or 0)
+        ocr_model = str(ocr_usage.get("model", "mock"))
+
+        grd_in = int(grader_usage.get("input_tokens", 0) or 0)
+        grd_out = int(grader_usage.get("output_tokens", 0) or 0)
+        grd_th = int(grader_usage.get("thinking_tokens", 0) or 0)
+        grd_tot = int(grader_usage.get("total_tokens", grd_in + grd_out + grd_th) or 0)
+        grd_model = str(grader_usage.get("model", "rule-based"))
+
+        cost_usd = _estimate_cost_usd(ocr_model, ocr_in, ocr_out + ocr_th) + _estimate_cost_usd(
+            grd_model, grd_in, grd_out + grd_th
+        )
+        provider_name = (
+            ocr_usage.get("provider")
+            if ocr_usage.get("provider") not in (None, "", "cache")
+            else grader_usage.get("provider", "mock")
+        )
+
+        record.telemetry = GradingTelemetry(
+            total_ms=total_ms,
+            preprocess_ms=preprocess_ms,
+            ocr_ms=ocr_ms,
+            sympy_ms=sympy_ms,
+            grading_ms=grading_ms,
+            provider=str(provider_name or "mock"),
+            ocr_model=ocr_model,
+            grader_model=grd_model,
+            ocr_input_tokens=ocr_in,
+            ocr_output_tokens=ocr_out,
+            ocr_thinking_tokens=ocr_th,
+            ocr_total_tokens=ocr_tot,
+            grader_input_tokens=grd_in,
+            grader_output_tokens=grd_out,
+            grader_thinking_tokens=grd_th,
+            grader_total_tokens=grd_tot,
+            total_input_tokens=ocr_in + grd_in,
+            total_output_tokens=ocr_out + grd_out,
+            total_thinking_tokens=ocr_th + grd_th,
+            total_tokens=ocr_tot + grd_tot,
+            estimated_cost_usd=round(cost_usd, 6),
+            estimated_cost_vnd=round(cost_usd * _VND_PER_USD, 1),
+        )
 
         # --- BƯỚC 5: Hoàn tất chấm sơ khảo (HITL Tagging) ---
         record.ai_total_score = round(total_ai_score, 2)

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import os
 from fastapi import APIRouter, BackgroundTasks, File, Form, Header, HTTPException, Query, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel
 
 from backend.app.core.config import settings
 from backend.app.core.database import db
@@ -11,13 +12,31 @@ from backend.app.models.schemas import (
     ImageQualityReport,
     QuestionRubric,
     RubricCriterion,
+    SmartFolderBatchResult,
     SubmissionGradingRecord,
     SubmissionStatus,
     TeacherReviewRequest,
 )
 from backend.app.services.agent1_ocr import OCRApiError, OCRLowConfidenceError
+from backend.app.services.folder_reassembler import (
+    ALLOWED_IMAGE_EXTS,
+    build_sorted_output_folder,
+    grade_student_folder,
+    load_images_from_local_folder,
+    zip_sorted_output_folder,
+)
+from backend.app.services.student_clusterer import (
+    grade_smart_folder_multistudent,
+    zip_directory_recursive,
+)
 from backend.app.services.pipeline import grading_pipeline
 from backend.app.services.preprocessor import assess_capture_quality
+
+
+class FolderPathGradeRequest(BaseModel):
+    folder_path: str
+    exam_id: str = "AUTO"
+    student_name: str = "Học sinh ẩn danh"
 
 router = APIRouter()
 
@@ -342,6 +361,7 @@ async def grade_submission(
     except OCRLowConfidenceError as exc:
         raise HTTPException(status_code=422, detail={"error_code": "E004", "message": str(exc)})
     except OCRApiError as exc:
+        print(f"[Grade OCRApiError] {exc}")
         http_status = 429 if exc.error_code == "E006" else 503
         raise HTTPException(status_code=http_status, detail={"error_code": exc.error_code, "message": str(exc)})
 
@@ -385,12 +405,188 @@ async def grade_multipage_submission(
     except OCRLowConfidenceError as exc:
         raise HTTPException(status_code=422, detail={"error_code": "E004", "message": str(exc)})
     except OCRApiError as exc:
+        print(f"[Grade OCRApiError] {exc}")
         http_status = 429 if exc.error_code == "E006" else 503
         raise HTTPException(status_code=http_status, detail={"error_code": exc.error_code, "message": str(exc)})
 
     db.save_submission(record)
     SUBMISSION_DB[record.submission_id] = record
     return record
+
+
+@router.post("/submissions/grade-folder-upload", response_model=SubmissionGradingRecord)
+async def grade_folder_upload(
+    files: list[UploadFile] = File(...),
+    exam_id: str = Form("AUTO"),
+    student_name: str = Form("Học sinh ẩn danh"),
+) -> SubmissionGradingRecord:
+    """
+    Chế độ A (Upload từ Web UI): Nhận cả Folder ảnh bài làm lộn xộn của 1 học sinh,
+    OCR song song, tự sắp xếp lại Câu 1 -> 2 -> 3, ghép mảnh cùng câu và chấm trọn bộ.
+    """
+    files_data: list[tuple[str, bytes]] = []
+    for f in files:
+        fname = os.path.basename(f.filename or "image.jpg")
+        if not fname.lower().endswith(ALLOWED_IMAGE_EXTS):
+            continue
+        raw = await f.read()
+        if len(raw) == 0:
+            continue
+        if len(raw) > 50 * 1024 * 1024:
+            raise HTTPException(
+                status_code=413,
+                detail={"error_code": "E003", "message": f"File {fname} vượt quá giới hạn 50MB."},
+            )
+        files_data.append((fname, raw))
+
+    if not files_data:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "E001", "message": "Folder tải lên không chứa file ảnh hợp lệ (.jpg, .png, .webp)."},
+        )
+    if len(files_data) > 30:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "E001", "message": "Một folder học sinh hỗ trợ tối đa 30 ảnh."},
+        )
+
+    rubric = _resolve_rubric(exam_id)
+    try:
+        record = grade_student_folder(files_data=files_data, rubric=rubric, student_name=student_name)
+    except OCRLowConfidenceError as exc:
+        raise HTTPException(status_code=422, detail={"error_code": "E004", "message": str(exc)})
+    except OCRApiError as exc:
+        print(f"[Folder Grade OCRApiError] {exc}")
+        http_status = 429 if exc.error_code == "E006" else 503
+        raise HTTPException(status_code=http_status, detail={"error_code": exc.error_code, "message": str(exc)})
+
+    db.save_submission(record)
+    SUBMISSION_DB[record.submission_id] = record
+    return record
+
+
+@router.post("/submissions/grade-folder-path", response_model=SubmissionGradingRecord)
+def grade_folder_path(req: FolderPathGradeRequest) -> SubmissionGradingRecord:
+    """
+    Chế độ A (Đường dẫn Folder local trên máy): Quét trực tiếp thư mục ảnh local,
+    OCR song song, tự sắp xếp lại câu lộn xộn và chấm trọn bộ.
+    """
+    try:
+        files_data = load_images_from_local_folder(req.folder_path, max_files=30)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"error_code": "E002", "message": str(exc)})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"error_code": "E001", "message": str(exc)})
+
+    rubric = _resolve_rubric(req.exam_id)
+    try:
+        record = grade_student_folder(files_data=files_data, rubric=rubric, student_name=req.student_name)
+    except OCRLowConfidenceError as exc:
+        raise HTTPException(status_code=422, detail={"error_code": "E004", "message": str(exc)})
+    except OCRApiError as exc:
+        print(f"[Folder Path Grade OCRApiError] {exc}")
+        http_status = 429 if exc.error_code == "E006" else 503
+        raise HTTPException(status_code=http_status, detail={"error_code": exc.error_code, "message": str(exc)})
+
+    db.save_submission(record)
+    SUBMISSION_DB[record.submission_id] = record
+    return record
+
+
+@router.post("/submissions/grade-folder-smart-upload", response_model=SmartFolderBatchResult)
+async def grade_folder_smart_upload(
+    files: list[UploadFile] = File(...),
+    exam_id: str = Form("AUTO"),
+) -> SmartFolderBatchResult:
+    """
+    Chế độ Thông Minh (v0.3.0 — Upload Folder):
+    Quét toàn bộ ảnh trong folder, tự xoay ảnh ngang 90°/180°/270°, tự động tách
+    nhiều học sinh thành từng thư mục con HS_01/, HS_02/... + xuất 00_BANG_DIEM_CA_LOP.xlsx.
+    """
+    files_data: list[tuple[str, bytes]] = []
+    for f in files:
+        fname = os.path.basename(f.filename or "image.jpg")
+        if not fname.lower().endswith(ALLOWED_IMAGE_EXTS):
+            continue
+        raw = await f.read()
+        if len(raw) == 0:
+            continue
+        if len(raw) > 50 * 1024 * 1024:
+            raise HTTPException(
+                status_code=413,
+                detail={"error_code": "E003", "message": f"File {fname} vượt quá giới hạn 50MB."},
+            )
+        files_data.append((fname, raw))
+
+    if not files_data:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "E001", "message": "Folder tải lên không chứa file ảnh hợp lệ (.jpg, .png, .webp)."},
+        )
+    if len(files_data) > 50:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "E001", "message": "Một lần xử lý hỗ trợ tối đa 50 ảnh."},
+        )
+
+    rubric = _resolve_rubric(exam_id)
+    try:
+        batch_res = grade_smart_folder_multistudent(files_data=files_data, rubric=rubric)
+    except OCRLowConfidenceError as exc:
+        raise HTTPException(status_code=422, detail={"error_code": "E004", "message": str(exc)})
+    except OCRApiError as exc:
+        print(f"[Smart Folder OCRApiError] {exc}")
+        http_status = 429 if exc.error_code == "E006" else 503
+        raise HTTPException(status_code=http_status, detail={"error_code": exc.error_code, "message": str(exc)})
+
+    for rec in batch_res.students:
+        db.save_submission(rec)
+        SUBMISSION_DB[rec.submission_id] = rec
+    return batch_res
+
+
+@router.post("/submissions/grade-folder-smart-path", response_model=SmartFolderBatchResult)
+def grade_folder_smart_path(req: FolderPathGradeRequest) -> SmartFolderBatchResult:
+    """Chế độ Thông Minh (v0.3.0 — Đường dẫn Folder local): tự xoay ảnh + tách nhiều học sinh + xuất sub-folders."""
+    try:
+        files_data = load_images_from_local_folder(req.folder_path, max_files=50)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"error_code": "E002", "message": str(exc)})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"error_code": "E001", "message": str(exc)})
+
+    rubric = _resolve_rubric(req.exam_id)
+    try:
+        batch_res = grade_smart_folder_multistudent(files_data=files_data, rubric=rubric)
+    except OCRLowConfidenceError as exc:
+        raise HTTPException(status_code=422, detail={"error_code": "E004", "message": str(exc)})
+    except OCRApiError as exc:
+        print(f"[Smart Folder Path OCRApiError] {exc}")
+        http_status = 429 if exc.error_code == "E006" else 503
+        raise HTTPException(status_code=http_status, detail={"error_code": exc.error_code, "message": str(exc)})
+
+    for rec in batch_res.students:
+        db.save_submission(rec)
+        SUBMISSION_DB[rec.submission_id] = rec
+    return batch_res
+
+
+@router.get("/batches/{batch_id}/export-zip")
+def export_smart_batch_zip(batch_id: str):
+    """Tải trọn bộ cây thư mục đầu ra đã tách theo từng học sinh (HS_01/, HS_02/... + 00_BANG_DIEM_CA_LOP.xlsx)."""
+    if not batch_id.startswith("class_") or any(ch in batch_id for ch in ("/", "\\", "..")):
+        raise HTTPException(status_code=400, detail={"error_code": "E001", "message": "Mã lô không hợp lệ."})
+    data_dir = os.path.dirname(os.path.abspath(settings.UPLOAD_DIR))
+    batch_dir = os.path.join(data_dir, "outputs", batch_id)
+    if not os.path.isdir(batch_dir):
+        raise HTTPException(status_code=404, detail={"error_code": "E002", "message": f"Không tìm thấy thư mục lô {batch_id}."})
+
+    zip_bytes = zip_directory_recursive(batch_dir)
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename=EduMark_Class_{batch_id}.zip"},
+    )
 
 
 @router.post("/submissions/review", response_model=SubmissionGradingRecord)
@@ -445,6 +641,143 @@ def get_submission(submission_id: str) -> SubmissionGradingRecord:
             detail={"error_code": "E002", "message": "Không tìm thấy bài thi"},
         )
     return record
+
+
+def _discover_submission_page_files(record: SubmissionGradingRecord) -> list[tuple[int, str, str]]:
+    """
+    Tìm danh sách file ảnh thực tế đã lưu trên đĩa cho submission:
+    Trả về list[(page_no, display_source_file, absolute_disk_path)].
+    Hỗ trợ cả bài mới có `page_files` lẫn bài đã chấm trước đó (vd `folder_b4d9c000`).
+    """
+    folder = os.path.join(settings.UPLOAD_DIR, record.exam_id)
+    if not os.path.isdir(folder):
+        return []
+
+    orig_names = (
+        list(record.folder_reassembly.original_file_order)
+        if record.folder_reassembly and record.folder_reassembly.original_file_order
+        else []
+    )
+
+    found: list[tuple[int, str, str]] = []
+    if record.page_files:
+        for idx, saved_name in enumerate(record.page_files, start=1):
+            full_path = os.path.join(folder, saved_name)
+            if os.path.isfile(full_path):
+                disp = orig_names[idx - 1] if idx - 1 < len(orig_names) else saved_name
+                found.append((idx, disp, full_path))
+        if found:
+            return found
+
+    # Auto-discover theo quy ước tên file: {sub_id}.jpg, {sub_id}_p2.jpg hoặc {sub_id}_p{N}_{name}
+    import re as _re
+    matched: list[tuple[int, str, str]] = []
+    prefix = f"{record.submission_id}_p"
+    single_file = os.path.join(folder, f"{record.submission_id}.jpg")
+    if os.path.isfile(single_file):
+        matched.append((1, f"{record.submission_id}.jpg", single_file))
+
+    for fname in os.listdir(folder):
+        if fname.startswith(prefix):
+            m = _re.match(rf"^{_re.escape(record.submission_id)}_p(\d+)(?:_(.+))?\.?(.*)$", fname)
+            if m:
+                p_no = int(m.group(1))
+                disp = orig_names[p_no - 1] if p_no - 1 < len(orig_names) else (m.group(2) or fname)
+                matched.append((p_no, disp, os.path.join(folder, fname)))
+
+    matched.sort(key=lambda x: x[0])
+    return matched
+
+
+@router.get("/submissions/{submission_id}/pages")
+def list_submission_pages(submission_id: str) -> list[dict]:
+    """Liệt kê tất cả các trang ảnh của bài nộp kèm danh sách câu AI nhận diện trong từng trang."""
+    record = db.get_submission(submission_id) or SUBMISSION_DB.get(submission_id)
+    if not record:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "E002", "message": "Không tìm thấy bài thi"},
+        )
+
+    pages = _discover_submission_page_files(record)
+    result: list[dict] = []
+    for p_no, disp_name, _ in pages:
+        # Tìm các câu & số dòng đến từ file ảnh này
+        q_hits: list[dict] = []
+        for q in record.extracted_questions:
+            lines_from_file = [
+                l for l in q.lines
+                if (l.source_file and l.source_file == disp_name) or (not l.source_file and l.page_no == p_no)
+            ]
+            if lines_from_file or disp_name in (q.source_files or []):
+                q_hits.append({"question_id": q.question_id, "line_count": len(lines_from_file)})
+        result.append(
+            {
+                "page_no": p_no,
+                "source_file": disp_name,
+                "url": f"/api/v1/submissions/{submission_id}/pages/{p_no}",
+                "questions": q_hits,
+                "total_lines": sum(h["line_count"] for h in q_hits),
+            }
+        )
+    return result
+
+
+@router.get("/submissions/{submission_id}/pages/{page_no}")
+def get_submission_page_image(submission_id: str, page_no: int):
+    """Trả về file ảnh JPEG thực tế của trang thứ page_no để hiển thị đối soát trên UI."""
+    record = db.get_submission(submission_id) or SUBMISSION_DB.get(submission_id)
+    if not record:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "E002", "message": "Không tìm thấy bài thi"},
+        )
+    pages = _discover_submission_page_files(record)
+    for p_no, _, full_path in pages:
+        if p_no == page_no:
+            return FileResponse(full_path, media_type="image/jpeg")
+    raise HTTPException(
+        status_code=404,
+        detail={"error_code": "E002", "message": f"Không tìm thấy ảnh trang {page_no} của bài {submission_id}"},
+    )
+
+
+@router.get("/submissions/{submission_id}/export-sorted-folder")
+def export_sorted_folder_zip(submission_id: str):
+    """
+    Xuất và tải về thư mục đầu ra gồm toàn bộ ảnh đã được đổi tên & sắp xếp chuẩn
+    theo thứ tự câu (01_cau_1_..., 02_cau_2_...) kèm 00_KET_QUA_CHAM.md & 00_ket_qua.json.
+    """
+    record = db.get_submission(submission_id) or SUBMISSION_DB.get(submission_id)
+    if not record:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "E002", "message": "Không tìm thấy bài thi"},
+        )
+    pages = _discover_submission_page_files(record)
+    if not pages:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "E002", "message": "Không tìm thấy file ảnh gốc của bài thi này trên ổ đĩa."},
+        )
+
+    out_dir, sorted_names = build_sorted_output_folder(record, pages)
+    if record.folder_reassembly:
+        record.folder_reassembly.output_folder_path = out_dir
+        record.folder_reassembly.sorted_output_files = sorted_names
+        db.save_submission(record)
+
+    from urllib.parse import quote
+    zip_bytes = zip_sorted_output_folder(out_dir)
+    filename = f"EduMark_Sorted_{submission_id}.zip"
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}",
+            "X-Output-Folder-Path": quote(out_dir, safe=":\\/"),
+        },
+    )
 
 
 # --- Batch Processing ---
