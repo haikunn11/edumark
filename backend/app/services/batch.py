@@ -6,17 +6,16 @@ import re
 import uuid
 import zipfile
 from datetime import datetime, timezone
-from typing import List, Literal, Tuple
+from typing import Literal
 import pymupdf
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
+from backend.app.core.database import db
 from backend.app.models.schemas import (
     ExamRubric,
     SubmissionGradingRecord,
-    SubmissionStatus,
-    GradingResult,
 )
 from backend.app.services.pipeline import grading_pipeline
 
@@ -37,15 +36,12 @@ class PDFSplitError(Exception):
 
 
 class ExportNoDataError(Exception):
-    """Không có bài thi nào đã được phê duyệt để xuất bảng điểm."""
+    """Không có bài thi nào để xuất bảng điểm."""
     pass
 
 
 def split_pdf_pages(pdf_bytes: bytes, max_pages: int = 50) -> list[tuple[int, bytes]]:
-    """
-    Tách file PDF nhiều trang thành từng ảnh bài thi riêng biệt (WP-15).
-    Mỗi trang = 1 bài thi học sinh. Render ở độ phân giải 200-300 DPI.
-    """
+    """Tách file PDF nhiều trang thành từng ảnh bài thi riêng biệt ở 200 DPI."""
     try:
         doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     except Exception as exc:
@@ -56,10 +52,11 @@ def split_pdf_pages(pdf_bytes: bytes, max_pages: int = 50) -> list[tuple[int, by
         raise PDFSplitError("File PDF không có trang nào.")
 
     if total_pages > max_pages:
-        raise BatchSizeLimitError(f"File PDF có {total_pages} trang, vượt quá giới hạn tối đa {max_pages} bài/lần.")
+        raise BatchSizeLimitError(
+            f"File PDF có {total_pages} trang, vượt quá giới hạn tối đa {max_pages} bài/lần."
+        )
 
     results: list[tuple[int, bytes]] = []
-    # 200 DPI matrix (200 / 72 ≈ 2.77)
     zoom = 200.0 / 72.0
     mat = pymupdf.Matrix(zoom, zoom)
 
@@ -74,10 +71,7 @@ def split_pdf_pages(pdf_bytes: bytes, max_pages: int = 50) -> list[tuple[int, by
 
 
 def extract_zip_images(zip_bytes: bytes, max_files: int = 50) -> list[tuple[str, bytes]]:
-    """
-    Giải nén file ZIP chứa nhiều ảnh bài thi (WP-14).
-    Tự động lọc các file rác (.DS_Store, __MACOSX) và sắp xếp tự nhiên theo tên.
-    """
+    """Giải nén file ZIP chứa nhiều ảnh bài thi, tự lọc rác và sắp xếp tự nhiên."""
     try:
         zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
     except Exception as exc:
@@ -89,19 +83,19 @@ def extract_zip_images(zip_bytes: bytes, max_files: int = 50) -> list[tuple[str,
     for name in zf.namelist():
         if name.startswith("__MACOSX") or name.endswith("/"):
             continue
-        lower_name = name.lower()
-        if lower_name.endswith(valid_extensions):
+        if name.lower().endswith(valid_extensions):
             image_entries.append(name)
 
     if not image_entries:
         raise ZipExtractionError("File ZIP không chứa bất kỳ ảnh JPEG/PNG nào hợp lệ.")
 
     if len(image_entries) > max_files:
-        raise BatchSizeLimitError(f"File ZIP chứa {len(image_entries)} ảnh, vượt quá giới hạn tối đa {max_files} bài/lần.")
+        raise BatchSizeLimitError(
+            f"File ZIP chứa {len(image_entries)} ảnh, vượt quá giới hạn tối đa {max_files} bài/lần."
+        )
 
-    # Sắp xếp tự nhiên (1.jpg, 2.jpg, 10.jpg)
     def natural_sort_key(s: str):
-        return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s)]
+        return [int(text) if text.isdigit() else text.lower() for text in re.split(r"(\d+)", s)]
 
     image_entries.sort(key=natural_sort_key)
 
@@ -115,7 +109,7 @@ def extract_zip_images(zip_bytes: bytes, max_files: int = 50) -> list[tuple[str,
 
 
 class BatchJob:
-    """Đối tượng theo dõi trạng thái công việc chấm hàng loạt (WP-17)."""
+    """Theo dõi trạng thái công việc chấm hàng loạt."""
 
     def __init__(self, job_id: str, exam_id: str, total_submissions: int) -> None:
         self.job_id = job_id
@@ -137,7 +131,9 @@ class BatchJob:
             "total_submissions": self.total_submissions,
             "completed_submissions": self.completed_submissions,
             "failed_submissions": self.failed_submissions,
-            "progress_percentage": round((self.completed_submissions / max(1, self.total_submissions)) * 100, 1),
+            "progress_percentage": round(
+                (self.completed_submissions / max(1, self.total_submissions)) * 100, 1
+            ),
             "created_at": self.created_at,
             "completed_at": self.completed_at,
             "error_message": self.error_message,
@@ -146,7 +142,7 @@ class BatchJob:
 
 
 class BatchJobManager:
-    """Quản trị hàng đợi các tác vụ xử lý bài thi hàng loạt."""
+    """Quản trị hàng đợi chấm hàng loạt có đồng bộ SQLite."""
 
     def __init__(self) -> None:
         self._jobs: dict[str, BatchJob] = {}
@@ -155,10 +151,17 @@ class BatchJobManager:
         job_id = f"batch_{uuid.uuid4().hex[:8]}"
         job = BatchJob(job_id=job_id, exam_id=exam_id, total_submissions=total_count)
         self._jobs[job_id] = job
+        db.save_batch_job(job.to_dict())
         return job
 
     def get_job(self, job_id: str) -> BatchJob | None:
         return self._jobs.get(job_id)
+
+    def get_job_dict(self, job_id: str) -> dict | None:
+        job = self._jobs.get(job_id)
+        if job:
+            return job.to_dict()
+        return db.get_batch_job(job_id)
 
     def run_batch_sync(
         self,
@@ -171,6 +174,7 @@ class BatchJobManager:
             raise ValueError(f"Job {job_id} không tồn tại.")
 
         job.status = "processing"
+        db.save_batch_job(job.to_dict())
         for label, img_bytes in items:
             try:
                 sub_id = f"{job.exam_id}_{label}"
@@ -180,13 +184,16 @@ class BatchJobManager:
                     student_name=f"Học sinh ({label})",
                     submission_id=sub_id,
                 )
+                db.save_submission(rec)
                 job.results.append(rec)
                 job.completed_submissions += 1
             except Exception as exc:
                 job.failed_submissions += 1
+                job.error_message = str(exc)
 
         job.status = "completed"
         job.completed_at = datetime.now(timezone.utc).isoformat()
+        db.save_batch_job(job.to_dict())
         return job
 
 
@@ -198,29 +205,21 @@ def export_to_excel(
     records: list[SubmissionGradingRecord],
     format_type: Literal["standard", "vnedu", "smas"] = "standard",
 ) -> bytes:
-    """
-    Xuất bảng điểm Excel chuẩn hóa (.xlsx) bằng openpyxl (WP-16).
-    Hỗ trợ 3 format:
-      1. 'standard': Bảng điểm đầy đủ có Sheet 1 (Tổng kết) & Sheet 2 (Chi tiết bước giải).
-      2. 'vnedu': Định dạng nhập điểm tương thích VnEdu.
-      3. 'smas': Định dạng nhập điểm tương thích SMAS Viettel.
-    """
+    """Xuất bảng điểm Excel chuẩn hóa (.xlsx) bằng openpyxl (standard / vnedu / smas)."""
     if not records:
         raise ExportNoDataError("Không có bản ghi điểm nào để xuất Excel.")
 
     wb = openpyxl.Workbook()
-    # Font & Color palettes
     header_fill = PatternFill(start_color="4F46E5", end_color="4F46E5", fill_type="solid")
     sub_header_fill = PatternFill(start_color="312E81", end_color="312E81", fill_type="solid")
     zebra_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
     header_font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
-    bold_font = Font(name="Arial", size=10, bold=True)
     normal_font = Font(name="Arial", size=10)
     thin_border = Border(
-        left=Side(style='thin', color='CBD5E1'),
-        right=Side(style='thin', color='CBD5E1'),
-        top=Side(style='thin', color='CBD5E1'),
-        bottom=Side(style='thin', color='CBD5E1'),
+        left=Side(style="thin", color="CBD5E1"),
+        right=Side(style="thin", color="CBD5E1"),
+        top=Side(style="thin", color="CBD5E1"),
+        bottom=Side(style="thin", color="CBD5E1"),
     )
 
     if format_type == "vnedu":
@@ -236,7 +235,7 @@ def export_to_excel(
 
         for idx, rec in enumerate(records, start=1):
             score = rec.final_score if rec.final_score is not None else rec.ai_total_score
-            row = [idx, f"HS_{idx:03d}", rec.student_name, score, rec.status, rec.teacher_note or ""]
+            row = [idx, f"HS_{idx:03d}", rec.student_name, score, rec.status.value, rec.teacher_note or ""]
             ws.append(row)
             for c_idx in range(1, len(row) + 1):
                 cell = ws.cell(row=idx + 1, column=c_idx)
@@ -266,12 +265,11 @@ def export_to_excel(
                 cell.border = thin_border
 
     else:
-        # Standard: 2 Sheets
         ws1 = wb.active
         ws1.title = "Bảng Điểm Tổng Hợp"
         headers1 = [
             "STT", "Mã Bài Thi", "Tên Học Sinh", "Điểm AI", "Điểm Chốt",
-            "Trạng Thái", "Lỗi Lan Truyền", "Cache Hit", "Ghi Chú Giáo Viên"
+            "Trạng Thái", "Lỗi Lan Truyền", "Cache Hit", "Ghi Chú Giáo Viên",
         ]
         ws1.append(headers1)
         for col_idx in range(1, len(headers1) + 1):
@@ -288,7 +286,7 @@ def export_to_excel(
                 rec.student_name,
                 rec.ai_total_score,
                 rec.final_score if rec.final_score is not None else rec.ai_total_score,
-                rec.status,
+                rec.status.value,
                 "Có (Bảo lưu)" if has_ep else "Không",
                 "Hit" if rec.cache_hit else "Miss",
                 rec.teacher_note or "",
@@ -301,7 +299,6 @@ def export_to_excel(
                 if idx % 2 == 0:
                     cell.fill = zebra_fill
 
-        # Sheet 2: Chi tiết từng bước giải
         ws2 = wb.create_sheet(title="Chi Tiết Tiêu Chí Chấm")
         headers2 = ["STT", "Mã Bài", "Câu Hỏi", "Mã Tiêu Chí", "Điểm Đạt", "Điểm Tối Đa", "Trạng Thái", "Nhận Xét Chi Tiết"]
         ws2.append(headers2)
@@ -332,10 +329,9 @@ def export_to_excel(
                         cell.border = thin_border
                     row_counter += 1
 
-    # Tự động điều chỉnh độ rộng cột cho đẹp mắt
     for sheet in wb.worksheets:
         for col in sheet.columns:
-            max_len = max(len(str(cell.value or '')) for cell in col)
+            max_len = max(len(str(cell.value or "")) for cell in col)
             col_letter = get_column_letter(col[0].column)
             sheet.column_dimensions[col_letter].width = max(max_len + 3, 10)
 

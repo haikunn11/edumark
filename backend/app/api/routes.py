@@ -1,23 +1,27 @@
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+import os
+from fastapi import APIRouter, BackgroundTasks, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi.responses import Response
+
+from backend.app.core.config import settings
+from backend.app.core.database import db
 from backend.app.models.schemas import (
     ExamRubric,
+    ImageQualityReport,
     QuestionRubric,
     RubricCriterion,
     SubmissionGradingRecord,
     SubmissionStatus,
     TeacherReviewRequest,
-    GradingResult,
-    QuestionGradingResult,
 )
+from backend.app.services.agent1_ocr import OCRApiError, OCRLowConfidenceError
 from backend.app.services.pipeline import grading_pipeline
+from backend.app.services.preprocessor import assess_capture_quality
 
 router = APIRouter()
 
-# In-memory database phục vụ test flow và demo
+# Giữ tham chiếu dict để tương thích ngược nếu code ngoài có import trực tiếp
 EXAM_DB: dict[str, ExamRubric] = {}
 SUBMISSION_DB: dict[str, SubmissionGradingRecord] = {}
 
@@ -28,14 +32,14 @@ def get_auto_rubric() -> ExamRubric:
         exam_id="AUTO",
         title="Tự động nhận diện Đề bài (AI Auto)",
         exam_title="Tự động nhận diện Đề bài (AI Auto)",
-        total_points=2.0,
+        total_points=10.0,
         rubric_version=1,
         questions=[
             QuestionRubric(
                 question_id="AUTO",
                 question_text="AUTO",
-                max_score=2.0,
-                total_points=2.0,
+                max_score=10.0,
+                total_points=10.0,
                 allow_error_propagation=True,
                 criteria=[],
             )
@@ -91,26 +95,61 @@ def get_default_secondary_math_rubric() -> ExamRubric:
     )
 
 
-# Đăng ký sẵn đề thi mặc định
-_auto_rubric = get_auto_rubric()
-EXAM_DB[_auto_rubric.exam_id] = _auto_rubric
-_default_rubric = get_default_secondary_math_rubric()
-EXAM_DB[_default_rubric.exam_id] = _default_rubric
+def _seed_default_exams() -> None:
+    for rubric in (get_auto_rubric(), get_default_secondary_math_rubric()):
+        if not db.get_exam(rubric.exam_id):
+            db.save_exam(rubric)
+        EXAM_DB[rubric.exam_id] = rubric
+
+
+_seed_default_exams()
+
+
+def _validate_upload_image_or_pdf(file: UploadFile, content: bytes) -> None:
+    content_type = (file.content_type or "").lower()
+    filename = (file.filename or "").lower()
+    allowed_types = ("image/jpeg", "image/png", "image/jpg", "image/webp", "application/pdf")
+    if content_type not in allowed_types and not filename.endswith((".jpg", ".jpeg", ".png", ".webp", ".pdf")):
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "E001", "message": "Định dạng file không hỗ trợ. Chỉ chấp nhận JPEG, PNG, WEBP, PDF."},
+        )
+    if len(content) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "E001", "message": "File tải lên bị rỗng (0 bytes)."},
+        )
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail={"error_code": "E003", "message": "Dung lượng file vượt quá giới hạn 50MB."},
+        )
 
 
 @router.get("/health")
 def health_check() -> dict:
-    return {"status": "ok", "service": "EduMark AI Backbone", "version": "0.1.0"}
+    return {
+        "status": "ok",
+        "service": "EduMark AI Backbone",
+        "version": settings.VERSION,
+        "db_ok": db.ping(),
+    }
 
 
 @router.get("/config/key-status")
 def get_key_status() -> dict:
-    from backend.app.core.config import settings
     has_openai = bool(settings.OPENAI_API_KEY and not settings.OPENAI_API_KEY.startswith("mock_"))
     has_gemini = bool(settings.GEMINI_API_KEY and not settings.GEMINI_API_KEY.startswith("mock_"))
     has_key = has_openai or has_gemini
-    provider = "openai" if has_openai else ("gemini" if has_gemini else "mock")
-    model = settings.DEFAULT_OPENAI_MODEL if has_openai else settings.DEFAULT_VISION_MODEL
+    pref = (settings.AI_PROVIDER or "openai").lower()
+    if pref == "gemini" and has_gemini:
+        provider, model = "gemini", settings.DEFAULT_VISION_MODEL
+    elif has_openai:
+        provider, model = "openai", settings.DEFAULT_OPENAI_MODEL
+    elif has_gemini:
+        provider, model = "gemini", settings.DEFAULT_VISION_MODEL
+    else:
+        provider, model = "mock", settings.DEFAULT_VISION_MODEL
 
     return {
         "configured": has_key,
@@ -122,21 +161,29 @@ def get_key_status() -> dict:
 
 
 @router.post("/config/key")
-def update_gemini_key(req: dict) -> dict:
-    """Lưu OpenAI hoặc Gemini API Key trực tiếp từ Web Dashboard vào .env và runtime."""
-    import os
-    from backend.app.core.config import settings
+def update_api_key(
+    req: dict,
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+) -> dict:
+    """Lưu OpenAI hoặc Gemini API Key vào runtime & .env (có bảo vệ ADMIN_API_TOKEN ở staging/prod)."""
+    if settings.ADMIN_API_TOKEN or settings.ENVIRONMENT != "local":
+        expected = settings.ADMIN_API_TOKEN
+        if not expected or x_admin_token != expected:
+            raise HTTPException(
+                status_code=403,
+                detail={"error_code": "E007", "message": "Không có quyền thay đổi cấu hình API Key trên môi trường này."},
+            )
+
     from backend.app.services.agent1_ocr import vision_agent
     from backend.app.services.agent2_grader import reasoning_agent
     from backend.app.core.cache import cache
 
-    new_key = req.get("api_key", "").strip()
+    new_key = str(req.get("api_key", "")).strip()
     if not new_key:
         raise HTTPException(status_code=400, detail="API Key không được để trống")
 
     is_openai = new_key.startswith("sk-")
 
-    # Kiểm tra xác thực key nếu không phải mock key test
     if not new_key.startswith("mock_"):
         if is_openai:
             try:
@@ -161,7 +208,6 @@ def update_gemini_key(req: dict) -> dict:
                 raise HTTPException(status_code=400, detail=f"Gemini API Key không hợp lệ: {exc}")
 
     cache.clear()
-
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     env_path = os.path.join(project_root, ".env")
 
@@ -171,7 +217,11 @@ def update_gemini_key(req: dict) -> dict:
         vision_agent.openai_api_key = new_key
         reasoning_agent.openai_api_key = new_key
         with open(env_path, "w", encoding="utf-8") as f:
-            f.write(f"AI_PROVIDER=openai\nOPENAI_API_KEY={new_key}\nDEFAULT_OPENAI_MODEL={settings.DEFAULT_OPENAI_MODEL}\nGEMINI_API_KEY={settings.GEMINI_API_KEY}\n")
+            f.write(
+                f"AI_PROVIDER=openai\nOPENAI_API_KEY={new_key}\n"
+                f"DEFAULT_OPENAI_MODEL={settings.DEFAULT_OPENAI_MODEL}\n"
+                f"GEMINI_API_KEY={settings.GEMINI_API_KEY}\n"
+            )
         msg = f"Đã kích hoạt OpenAI ({settings.DEFAULT_OPENAI_MODEL}) thành công!"
     else:
         settings.AI_PROVIDER = "gemini"
@@ -179,34 +229,97 @@ def update_gemini_key(req: dict) -> dict:
         vision_agent.api_key = new_key
         reasoning_agent.api_key = new_key
         with open(env_path, "w", encoding="utf-8") as f:
-            f.write(f"AI_PROVIDER=gemini\nOPENAI_API_KEY={settings.OPENAI_API_KEY}\nGEMINI_API_KEY={new_key}\n")
-        msg = "Đã kích hoạt Google Gemini thành công!"
+            f.write(
+                f"AI_PROVIDER=gemini\nOPENAI_API_KEY={settings.OPENAI_API_KEY}\n"
+                f"GEMINI_API_KEY={new_key}\n"
+                f"DEFAULT_VISION_MODEL={settings.DEFAULT_VISION_MODEL}\n"
+            )
+        msg = f"Đã kích hoạt Google Gemini ({settings.DEFAULT_VISION_MODEL}) thành công!"
 
     return {"status": "ok", "message": msg}
 
 
+# --- Exam CRUD ---
 @router.get("/exams", response_model=list[ExamRubric])
 def list_exams() -> list[ExamRubric]:
-    """Danh sách tất cả các đề thi và barem trong hệ thống."""
-    return list(EXAM_DB.values())
+    return db.list_exams()
 
 
 @router.get("/exams/{exam_id}", response_model=ExamRubric)
 def get_exam(exam_id: str) -> ExamRubric:
-    """Lấy chi tiết barem của 1 đề thi."""
-    if exam_id not in EXAM_DB:
+    exam = db.get_exam(exam_id)
+    if not exam:
         raise HTTPException(
             status_code=404,
             detail={"error_code": "E002", "message": f"Không tìm thấy đề thi với mã: {exam_id}"},
         )
-    return EXAM_DB[exam_id]
+    return exam
 
 
 @router.post("/exams", response_model=ExamRubric)
 def create_exam(rubric: ExamRubric) -> ExamRubric:
-    """Tạo hoặc cập nhật một barem đề thi mới."""
+    db.save_exam(rubric)
     EXAM_DB[rubric.exam_id] = rubric
     return rubric
+
+
+@router.put("/exams/{exam_id}", response_model=ExamRubric)
+def update_exam(exam_id: str, rubric: ExamRubric) -> ExamRubric:
+    if not db.get_exam(exam_id):
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "E002", "message": f"Không tìm thấy đề thi với mã: {exam_id}"},
+        )
+    rubric.exam_id = exam_id
+    db.save_exam(rubric)
+    EXAM_DB[exam_id] = rubric
+    return rubric
+
+
+@router.delete("/exams/{exam_id}")
+def delete_exam(exam_id: str) -> dict:
+    if exam_id == "AUTO":
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "E001", "message": "Không thể xóa barem hệ thống AUTO."},
+        )
+    deleted = db.delete_exam(exam_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "E002", "message": f"Không tìm thấy đề thi với mã: {exam_id}"},
+        )
+    EXAM_DB.pop(exam_id, None)
+    return {"status": "deleted", "exam_id": exam_id}
+
+
+# --- Mobile Pre-Capture Quality Check ---
+@router.post("/submissions/quality-check", response_model=ImageQualityReport)
+async def check_capture_quality(file: UploadFile = File(...)) -> ImageQualityReport:
+    """Đánh giá nhanh độ nét & ánh sáng ảnh chụp điện thoại trước khi gửi chấm AI."""
+    image_bytes = await file.read()
+    _validate_upload_image_or_pdf(file, image_bytes)
+    return assess_capture_quality(image_bytes)
+
+
+# --- Submissions Listing & Grading ---
+@router.get("/submissions", response_model=list[SubmissionGradingRecord])
+def list_submissions(
+    exam_id: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+) -> list[SubmissionGradingRecord]:
+    return db.list_submissions(exam_id=exam_id, status=status, limit=limit)
+
+
+def _resolve_rubric(exam_id: str) -> ExamRubric:
+    exam_id_norm = (exam_id or "").strip()
+    if not exam_id_norm or exam_id_norm == "AUTO":
+        return get_auto_rubric()
+    existing = db.get_exam(exam_id_norm)
+    if existing:
+        return existing
+    return get_auto_rubric()
 
 
 @router.post("/submissions/grade", response_model=SubmissionGradingRecord)
@@ -215,68 +328,93 @@ async def grade_submission(
     exam_id: str = Form("AUTO"),
     student_name: str = Form("Học sinh ẩn danh"),
 ) -> SubmissionGradingRecord:
-    """Tải lên ảnh bài thi và chạy qua toàn bộ Pipeline AI tự động (WP-12)."""
-    # Validate định dạng file
-    content_type = file.content_type or ""
-    allowed_types = ["image/jpeg", "image/png", "image/jpg", "application/pdf"]
-    if content_type.lower() not in allowed_types and not file.filename.lower().endswith((".jpg", ".jpeg", ".png", ".pdf")):
-        raise HTTPException(
-            status_code=400,
-            detail={"error_code": "E001", "message": "Định dạng file không hỗ trợ. Chỉ chấp nhận JPEG, PNG, PDF."},
-        )
-
-    exam_id_norm = (exam_id or "").strip()
-    if not exam_id_norm or exam_id_norm == "AUTO":
-        rubric = get_auto_rubric()
-    elif exam_id_norm in EXAM_DB:
-        rubric = EXAM_DB[exam_id_norm]
-    else:
-        rubric = get_auto_rubric()
+    """Tải lên 1 ảnh bài thi và chạy qua Pipeline AI tự động."""
     image_bytes = await file.read()
+    _validate_upload_image_or_pdf(file, image_bytes)
+    rubric = _resolve_rubric(exam_id)
 
-    if len(image_bytes) == 0:
+    try:
+        record = grading_pipeline.process_submission(
+            image_bytes=image_bytes,
+            rubric=rubric,
+            student_name=student_name,
+        )
+    except OCRLowConfidenceError as exc:
+        raise HTTPException(status_code=422, detail={"error_code": "E004", "message": str(exc)})
+    except OCRApiError as exc:
+        http_status = 429 if exc.error_code == "E006" else 503
+        raise HTTPException(status_code=http_status, detail={"error_code": exc.error_code, "message": str(exc)})
+
+    db.save_submission(record)
+    SUBMISSION_DB[record.submission_id] = record
+    return record
+
+
+@router.post("/submissions/grade-multipage", response_model=SubmissionGradingRecord)
+async def grade_multipage_submission(
+    files: list[UploadFile] = File(...),
+    exam_id: str = Form("AUTO"),
+    student_name: str = Form("Học sinh ẩn danh"),
+) -> SubmissionGradingRecord:
+    """Chấm 1 bài làm viết tay gồm nhiều trang chụp từ App (1..10 ảnh)."""
+    if not files:
         raise HTTPException(
             status_code=400,
-            detail={"error_code": "E001", "message": "File tải lên bị rỗng (0 bytes)."},
+            detail={"error_code": "E001", "message": "Vui lòng chụp hoặc chọn ít nhất 1 trang bài làm."},
         )
-
-    if len(image_bytes) > 50 * 1024 * 1024:
+    if len(files) > 10:
         raise HTTPException(
-            status_code=413,
-            detail={"error_code": "E003", "message": "Dung lượng file vượt quá giới hạn 50MB."},
+            status_code=400,
+            detail={"error_code": "E001", "message": "Một bài nộp hỗ trợ tối đa 10 trang ảnh."},
         )
 
-    record = grading_pipeline.process_submission(
-        image_bytes=image_bytes,
-        rubric=rubric,
-        student_name=student_name,
-    )
+    pages_bytes: list[bytes] = []
+    for f in files:
+        data = await f.read()
+        _validate_upload_image_or_pdf(f, data)
+        pages_bytes.append(data)
+
+    rubric = _resolve_rubric(exam_id)
+
+    try:
+        record = grading_pipeline.process_multipage_submission(
+            pages_bytes=pages_bytes,
+            rubric=rubric,
+            student_name=student_name,
+        )
+    except OCRLowConfidenceError as exc:
+        raise HTTPException(status_code=422, detail={"error_code": "E004", "message": str(exc)})
+    except OCRApiError as exc:
+        http_status = 429 if exc.error_code == "E006" else 503
+        raise HTTPException(status_code=http_status, detail={"error_code": exc.error_code, "message": str(exc)})
+
+    db.save_submission(record)
     SUBMISSION_DB[record.submission_id] = record
     return record
 
 
 @router.post("/submissions/review", response_model=SubmissionGradingRecord)
 def review_submission(req: TeacherReviewRequest) -> SubmissionGradingRecord:
-    """Giáo viên xem xét lại điểm số, ghi đè hoặc phê duyệt (Human-in-the-Loop - WP-13)."""
-    if req.submission_id not in SUBMISSION_DB:
+    """Giáo viên xem xét lại điểm số, ghi đè hoặc phê duyệt (Human-in-the-Loop)."""
+    record = db.get_submission(req.submission_id) or SUBMISSION_DB.get(req.submission_id)
+    if not record:
         raise HTTPException(
             status_code=404,
             detail={"error_code": "E002", "message": "Không tìm thấy bài thi cần duyệt."},
         )
 
-    record = SUBMISSION_DB[req.submission_id]
-
-    # Ghi đè điểm nếu có yêu cầu (Teacher Override)
     if req.score_overrides:
         total = 0.0
         for q_res in record.question_results:
             if q_res.question_id in req.score_overrides:
                 override_val = float(req.score_overrides[q_res.question_id])
-                # Validate override không âm và không vượt quá max_points
                 if override_val < 0.0 or override_val > q_res.max_score:
                     raise HTTPException(
                         status_code=400,
-                        detail={"error_code": "E001", "message": f"Điểm ghi đè {override_val} phải nằm trong khoảng [0, {q_res.max_score}]."},
+                        detail={
+                            "error_code": "E001",
+                            "message": f"Điểm ghi đè {override_val} phải nằm trong khoảng [0, {q_res.max_score}].",
+                        },
                     )
                 q_res.suggested_score = override_val
                 q_res.earned_points = override_val
@@ -284,39 +422,40 @@ def review_submission(req: TeacherReviewRequest) -> SubmissionGradingRecord:
         record.final_score = round(total, 2)
         record.ai_total_score = round(total, 2)
 
-    if req.teacher_note:
+    if req.teacher_note is not None:
         record.teacher_note = req.teacher_note
 
     if req.approve:
         record.status = SubmissionStatus.APPROVED
         record.needs_teacher_review = False
     elif req.score_overrides:
-        # Nếu chỉ override mà chưa approve
         record.needs_teacher_review = False
 
+    db.save_submission(record)
     SUBMISSION_DB[record.submission_id] = record
     return record
 
 
 @router.get("/submissions/{submission_id}", response_model=SubmissionGradingRecord)
 def get_submission(submission_id: str) -> SubmissionGradingRecord:
-    """Lấy chi tiết kết quả chấm 1 bài thi."""
-    if submission_id not in SUBMISSION_DB:
+    record = db.get_submission(submission_id) or SUBMISSION_DB.get(submission_id)
+    if not record:
         raise HTTPException(
             status_code=404,
             detail={"error_code": "E002", "message": "Không tìm thấy bài thi"},
         )
-    return SUBMISSION_DB[submission_id]
+    return record
 
 
+# --- Batch Processing ---
 @router.post("/submissions/batch")
 async def batch_grade_submissions(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     exam_id: str = Form("TOAN9_01"),
+    async_mode: bool = Form(False),
 ) -> dict:
-    """
-    Tải lên tệp ZIP hoặc PDF nhiều trang để chấm hàng loạt (WP-14 & WP-15).
-    """
+    """Tải lên ZIP hoặc PDF nhiều trang để chấm hàng loạt (hỗ trợ chạy nền async_mode=true)."""
     from backend.app.services.batch import (
         split_pdf_pages,
         extract_zip_images,
@@ -326,15 +465,15 @@ async def batch_grade_submissions(
         PDFSplitError,
     )
 
-    if exam_id not in EXAM_DB:
+    rubric = db.get_exam(exam_id)
+    if not rubric:
         raise HTTPException(
             status_code=404,
             detail={"error_code": "E002", "message": f"Không tìm thấy Barem cho exam_id: {exam_id}"},
         )
 
-    rubric = EXAM_DB[exam_id]
     file_bytes = await file.read()
-    filename = file.filename.lower()
+    filename = (file.filename or "").lower()
 
     try:
         if filename.endswith(".pdf") or "pdf" in (file.content_type or ""):
@@ -349,13 +488,14 @@ async def batch_grade_submissions(
             )
 
         job = batch_manager.create_job(exam_id=exam_id, total_count=len(items))
-        # Chạy đồng bộ cho batch nhỏ
-        completed_job = batch_manager.run_batch_sync(job.job_id, items, rubric)
 
-        # Lưu các bản ghi vào SUBMISSION_DB
+        if async_mode:
+            background_tasks.add_task(batch_manager.run_batch_sync, job.job_id, items, rubric)
+            return job.to_dict()
+
+        completed_job = batch_manager.run_batch_sync(job.job_id, items, rubric)
         for r in completed_job.results:
             SUBMISSION_DB[r.submission_id] = r
-
         return completed_job.to_dict()
 
     except (BatchSizeLimitError, ZipExtractionError, PDFSplitError) as err:
@@ -364,37 +504,37 @@ async def batch_grade_submissions(
 
 @router.get("/submissions/batch/{job_id}")
 def get_batch_job_status(job_id: str) -> dict:
-    """Tra cứu tiến độ và kết quả của tác vụ chấm hàng loạt (WP-17)."""
     from backend.app.services.batch import batch_manager
 
-    job = batch_manager.get_job(job_id)
-    if not job:
+    job_dict = batch_manager.get_job_dict(job_id)
+    if not job_dict:
         raise HTTPException(
             status_code=404,
             detail={"error_code": "E002", "message": f"Không tìm thấy batch job với ID: {job_id}"},
         )
-    return job.to_dict()
+    return job_dict
 
 
+# --- Excel Export ---
 @router.get("/exports/excel/{exam_id}")
 def export_exam_results_excel(
     exam_id: str,
     format_type: str = "standard",
+    approved_only: bool = False,
 ):
-    """Xuất bảng điểm Excel chuẩn hóa (.xlsx) cho VnEdu, SMAS hoặc Standard (WP-16)."""
-    from fastapi.responses import Response
+    """Xuất bảng điểm Excel chuẩn hóa (.xlsx) cho VnEdu, SMAS hoặc Standard (chặt theo exam_id)."""
     from backend.app.services.batch import export_to_excel, ExportNoDataError
 
-    # Lấy các bài thi thuộc exam_id
-    records = [rec for rec in SUBMISSION_DB.values() if rec.exam_id == exam_id]
-    if not records:
-        # Nếu chưa có bài nào trong DB, dùng sample demo để test
-        records = list(SUBMISSION_DB.values())
+    records = db.list_submissions(
+        exam_id=exam_id,
+        status=SubmissionStatus.APPROVED.value if approved_only else None,
+        limit=500,
+    )
 
     if not records:
         raise HTTPException(
             status_code=400,
-            detail={"error_code": "E001", "message": "Chưa có bài thi nào được chấm để xuất bảng điểm."},
+            detail={"error_code": "E001", "message": f"Chưa có bài thi nào thuộc mã đề '{exam_id}' để xuất bảng điểm."},
         )
 
     fmt = format_type.lower()

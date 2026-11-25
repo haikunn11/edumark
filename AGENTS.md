@@ -9,7 +9,7 @@ Tệp này là kim chỉ nam tối thượng của dự án. Mọi AI Agent khi 
 Khi bắt đầu bất kỳ phiên làm việc nào, Agent phải thực hiện tuần tự:
 
 <!-- brain:rule:boot -->
-1. **Bước 0 (Bắt buộc tiên quyết — Đồng Bộ & Boot Não Bộ):** Từ root repo, chạy `node ../HarnessBrain4Agents/brain4agent-release/.agents/skills/.xay-dung-nao-bo/scripts/init_brain.js --check` (engine não bộ chạy TẠI CHỖ từ hub quản trị tập trung — KHÔNG có bản sao global; skill `.xay-dung-nao-bo`, CHỈ ĐỌC) để kiểm tra não bộ đã đạt chuẩn mới nhất trước khi xử lý bất kỳ yêu cầu nào. Chỉ khi kết quả là `CẦN NÂNG CẤP` mới chạy lại **không cờ** (chế độ GHI) và nêu tường minh trong phiên; mã thoát `2` = cần người xử — KHÔNG tự sửa tay vùng luật do engine quản lý. Mẫu bàn giao, cẩm nang và luật khung mới nhất nằm trong thư mục hub chứa engine đó (`docs/`).
+1. **Bước 0 (Bắt buộc tiên quyết — Đồng Bộ & Boot Não Bộ):** Chạy `node "$HOME/.agents/skills/.xay-dung-nao-bo/scripts/init_brain.js" --check` (skill `.xay-dung-nao-bo`, CHỈ ĐỌC) để kiểm tra não bộ đã đạt chuẩn mới nhất trước khi xử lý bất kỳ yêu cầu nào. Chỉ khi kết quả là `CẦN NÂNG CẤP` mới chạy lại **không cờ** (chế độ GHI) và nêu tường minh trong phiên; mã thoát `2` = cần người xử — KHÔNG tự sửa tay vùng luật do engine quản lý.
 <!-- /brain:rule:boot -->
 2. **Bước 1 (Đọc Kernel Hiện Trạng):** Mở và đọc tệp [`brain4agent/memory-distill.txt`](brain4agent/memory-distill.txt) để nắm bắt kernel hiện trạng, tech stack và quy tắc bất biến.
 3. **Bước 2 (Định tuyến thông minh & Đọc Codebase Map):** Đọc [`brain4agent/index.md`](brain4agent/index.md) để:
@@ -69,7 +69,6 @@ Mọi đề xuất nâng cấp tính năng lớn, tái cấu trúc hoặc thêm 
    - **2.4. Exit Gates phải đánh dấu theo môi trường** (vd `✅ local / ⬜ server`) — kế hoạch chỉ được đóng khi mọi gate của môi trường thật chuyển ✅.
    - **2.5. NGOẠI LỆ DUY NHẤT:** hotfix/patch nhỏ (`PATCH` SemVer, ≤1 ngày công) được phép chỉ có `plan.md`, nhưng vẫn đủ Metadata + nhật ký quyết định + checklist. Mọi đợt `MINOR`/`MAJOR` bắt buộc đủ bộ SPEC.
    - **2.6. Package cũ dạng phẳng** (file `NN-*.md` nằm thẳng trong thư mục kế hoạch, không có `specs/`) được GIỮ NGUYÊN theo Path Invariant — không đổi cấu trúc để tránh gãy tham chiếu; chỉ áp cấu trúc chuẩn cho kế hoạch MỚI.
-   - **2.7. Hồ sơ trọn vòng đời (hồ sơ MỚI; hồ sơ cũ giữ nguyên):** `handoffs/H<NN>_*.md` ↔ `reports/R<NN>_*.md` (mỗi H đúng một R cùng đuôi; report dòng 2–4 = `Handoff:`/`Base:`/`Head:`, dòng cuối = phán quyết ✅/🔁/⛔); `evidence/<goi>/*.txt` = output máy, CẤM sửa tay, report chỉ trỏ. Đóng hồ sơ khi mọi H có R và evidence được trỏ tồn tại. Mẫu: `docs/HANDOFF_PROTOCOL.md` §14 tại hub.
 <!-- /brain:rule:spec-package -->
 3. **Quy tắc Phân Tầng Mô Hình (Model Tiering Tagging):**
    - 🔴 **Tier Đỏ (Strongest):** Thiết kế kiến trúc nền tảng, Data Contracts, Security (Ưu tiên mô hình mạnh nhất như Claude 3.7 / Opus / GPT-4.5).
@@ -119,7 +118,7 @@ Dự án áp dụng chuẩn **SemVer 2.0.0 (`MAJOR.MINOR.PATCH`)**:
    - **Ký Ức Nóng (`brain4agent/memory/hot/`):** Ghi nhận nhật ký phiên (`today.md`) và benchmark thực chiến (`state.json`).
    - **Kernel Hiện Trạng (`brain4agent/memory-distill.txt`):** Cập nhật ngắn gọn vào kernel (duy trì $< 100\text{ dòng}$).
 <!-- brain:rule:structural-extension -->
-2. **Mở Rộng Bắt Buộc Khi Đổi Nền Cấu Trúc (Structural Extension):** Kế hoạch nào thêm **THƯ MỤC TOP-LEVEL mới** (vd `app/`, `legacy/`, `.claude/agents/`) hoặc đưa vào **NGÔN NGỮ / KHUNG mới** (vd Rust, Tauri, React, Node ESM) thì BẮT BUỘC rà thêm **2 file ngoài Ma Trận 6 Điểm**: [`brain4agent/project-intro.md`](brain4agent/project-intro.md) (mục tiêu, bản chất repo, tech stack) và [`brain4agent/-data-architecture.md`](brain4agent/-data-architecture.md) (tầng lưu trữ, data flow). Lý do: hai file này KHÔNG thuộc 6 điểm nên dễ mô tả sai repo trong thời gian dài mà mọi kiểm tra tự động vẫn xanh; bản chất repo và tech stack chỉ con người rà được.
+2. **Mở Rộng Bắt Buộc Khi Đổi Nền Cấu Trúc (Structural Extension):** Kế hoạch nào thêm **THƯ MỤC TOP-LEVEL mới** (vd `app/`, `legacy/`, `.claude/agents/`) hoặc đưa vào **NGÔN NGỮ / KHUNG mới** (vd Rust, Tauri, React, Node ESM) thì BẮT BUỘC rà thêm **2 file ngoài Ma Trận 6 Điểm**: [`brain4agent/project-intro.md`](file:///brain4agent/project-intro.md) (mục tiêu, bản chất repo, tech stack) và [`brain4agent/-data-architecture.md`](file:///brain4agent/-data-architecture.md) (tầng lưu trữ, data flow). Lý do: hai file này KHÔNG thuộc 6 điểm nên dễ mô tả sai repo trong thời gian dài mà mọi kiểm tra tự động vẫn xanh; bản chất repo và tech stack chỉ con người rà được.
 <!-- /brain:rule:structural-extension -->
 
 ### C. Quy tắc Quản Lý Tài Liệu Module 1-1 Trong `docs/`
@@ -161,7 +160,7 @@ Dự án áp dụng chuẩn **SemVer 2.0.0 (`MAJOR.MINOR.PATCH`)**:
 <!-- brain:rule:dual-entry -->
 ### J. Quy tắc Tương Thích Đa Agent — Bất Biến Hai Điểm Nạp (Dual Entry-Point Invariant)
 1. Root repo BẮT BUỘC đủ 2 file: `AGENTS.md` = nguồn chân lý DUY NHẤT chứa toàn bộ luật; `CLAUDE.md` = shim mỏng ≤10 dòng, chỉ 1 dòng `@AGENTS.md` + ghi chú ngắn, TUYỆT ĐỐI không chứa luật.
-2. Lý do: mỗi hãng agent đọc tên file khác nhau. Claude Code auto-load `CLAUDE.md` (bản hiện hành nạp thêm cả `AGENTS.md` — đo 2026-09-06; giữ shim để mọi bản cũ/mới đều nạp đúng); Gemini/Codex và agent theo chuẩn `agents.md` đọc `AGENTS.md`. Hai điểm nạp, MỘT nguồn chân lý.
+2. Lý do: mỗi hãng agent đọc tên file khác nhau. Claude Code CHỈ auto-load `CLAUDE.md`; Gemini/Codex và agent theo chuẩn `agents.md` đọc `AGENTS.md`. Hai điểm nạp, MỘT nguồn chân lý.
 3. CẤM: (a) chép/nhân bản luật sang `CLAUDE.md` → sinh 2 nguồn chân lý lệch nhau; (b) đổi tên `AGENTS.md` (các tài liệu trong repo + agent khác tham chiếu đúng tên này).
 4. Khi khởi tạo dự án MỚI hoặc chạy skill `xay-dung-nao-bo`: PHẢI sinh ĐỦ CẢ HAI file, không sinh mỗi một cái.
 5. Mở rộng: agent mới đọc tên file riêng (`GEMINI.md`, `.cursorrules`) → thêm shim mỏng trỏ về `AGENTS.md`, KHÔNG nhân bản luật.

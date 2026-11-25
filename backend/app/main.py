@@ -6,30 +6,41 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from backend.app.core.config import settings
+from backend.app.core.database import db
 from backend.app.api.routes import router as api_router
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    description="Backbone API phục vụ Hệ thống Chấm bài Tự động Toán & Ngoại ngữ",
+    description="Backbone API phục vụ Hệ thống Chấm bài Tự luận Viết tay Thông minh EduMark AI",
 )
 
-# Cấu hình CORS cho Frontend
+origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()] or ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=origins,
+    allow_credentials=(origins != ["*"]),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Đăng ký Router API
+# Đăng ký Router API v1
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
-# Cấu hình Static Files cho Giao diện Demo
+# Cấu hình Static Files cho Giao diện Web & Mobile PWA
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(static_dir, exist_ok=True)
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
+@app.get("/health")
+def root_health() -> dict:
+    return {
+        "status": "ok",
+        "service": "EduMark AI",
+        "version": settings.VERSION,
+        "db_ok": db.ping(),
+    }
 
 
 @app.get("/")
@@ -38,6 +49,15 @@ def serve_index() -> FileResponse:
     if os.path.exists(index_file):
         return FileResponse(index_file)
     return FileResponse(__file__)
+
+
+@app.get("/app")
+@app.get("/mobile")
+def serve_mobile_app() -> FileResponse:
+    mobile_file = os.path.join(static_dir, "mobile.html")
+    if os.path.exists(mobile_file):
+        return FileResponse(mobile_file)
+    return serve_index()
 
 
 if __name__ == "__main__":

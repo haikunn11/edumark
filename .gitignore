@@ -6,6 +6,10 @@ __pycache__/
 *.pyo
 *.pyd
 *.sqlite3
+*.db
+*.db-wal
+*.db-shm
+backend/data/uploads/
 .DS_Store
 .idea/
 .vscode/

@@ -56,7 +56,6 @@ class QuestionRubric(BaseModel):
             self.total_points = self.max_score
         elif self.total_points and not self.max_score:
             self.max_score = self.total_points
-        # Tự động tính total_points nếu criteria có mà max_score chưa set
         if not self.total_points and self.criteria:
             self.total_points = round(sum(c.max_points for c in self.criteria), 2)
             self.max_score = self.total_points
@@ -84,6 +83,14 @@ class ExamRubric(BaseModel):
 class ImageQualityReport(BaseModel):
     is_blurry: bool = False
     blur_score: float = 100.0
+    brightness: float = 128.0
+    is_too_dark: bool = False
+    is_overexposed: bool = False
+    perspective_corrected: bool = False
+    shadow_removed: bool = False
+    is_acceptable: bool = True
+    warnings: list[str] = Field(default_factory=list)
+    recommendation: str = ""
     applied_transforms: list[str] = Field(default_factory=list)
 
 
@@ -99,12 +106,14 @@ class LineType(str, Enum):
 class ExtractedLine(BaseModel):
     line_index: int = 0
     line_no: int = 1
+    page_no: int = 1
     raw_text: str = ""
     latex: str = ""
     raw_latex: str = ""
     confidence: float = 1.0
     line_type: LineType = LineType.EQUATION
     unclear: bool = False
+    is_strikethrough: bool = False
 
     def model_post_init(self, __context):
         if not self.latex and self.raw_latex:
@@ -115,12 +124,16 @@ class ExtractedLine(BaseModel):
             self.line_index = max(0, self.line_no - 1)
         elif self.line_index and not self.line_no:
             self.line_no = self.line_index + 1
+        if self.line_type == LineType.SCRATCH:
+            self.is_strikethrough = True
 
 
 class ExtractedQuestion(BaseModel):
     question_id: str = "Q1"
     question_text: str = ""
     grade_level: str = ""
+    student_name_detected: str = ""
+    student_class_detected: str = ""
     confidence: float = 1.0
     overall_confidence: float = 1.0
     has_unclear: bool = False
@@ -130,10 +143,11 @@ class ExtractedQuestion(BaseModel):
 
     def model_post_init(self, __context):
         if self.lines:
-            mean_conf = sum(l.confidence for l in self.lines) / len(self.lines)
+            active_lines = [l for l in self.lines if not l.is_strikethrough] or self.lines
+            mean_conf = sum(l.confidence for l in active_lines) / len(active_lines)
             self.overall_confidence = round(mean_conf, 2)
             self.confidence = self.overall_confidence
-            if any(l.unclear for l in self.lines):
+            if any(l.unclear and not l.is_strikethrough for l in self.lines):
                 self.has_unclear = True
 
 
@@ -147,6 +161,15 @@ class OCRResult(BaseModel):
     ocr_warnings: list[str] = Field(default_factory=list)
 
 
+class MathVerificationSummary(BaseModel):
+    equations_checked: int = 0
+    valid_transitions: int = 0
+    invalid_transitions: int = 0
+    detected_roots: list[str] = Field(default_factory=list)
+    issues: list[str] = Field(default_factory=list)
+    summary: str = ""
+
+
 class CriterionEvaluation(BaseModel):
     criterion_id: str
     name: str = ""
@@ -157,7 +180,7 @@ class CriterionEvaluation(BaseModel):
     max_points: float = 0.0
     matched: bool = True
     status: str = "passed"  # "passed" | "partial" | "failed"
-    error_type: str | None = "none"  # "none" | "calculation" | "method" | "missing_step" | "missing_condition" | "wrong_conclusion" | "error_propagation"
+    error_type: str | None = "none"
     feedback: str = ""
 
     def model_post_init(self, __context):
@@ -217,8 +240,8 @@ class GradingResult(BaseModel):
     percentage: float = 0.0
     questions: list[QuestionGradingResult] = Field(default_factory=list)
     overall_confidence: float = 1.0
-    overall_confidence_level: str = "green"  # "green" | "yellow" | "red"
-    status: str = "pending_review"  # "pending_review" | "approved" | "overridden" | "rejected"
+    overall_confidence_level: str = "green"
+    status: str = "pending_review"
     error_propagation_detected: bool = False
     graded_at: str = ""
     reviewed_at: str | None = None
@@ -247,6 +270,8 @@ class SubmissionGradingRecord(BaseModel):
     exam_id: str
     exam_title: str = ""
     student_name: str = "Học sinh ẩn danh"
+    detected_student_name: str = ""
+    page_count: int = 1
     rubric_version: int = 1
     status: SubmissionStatus = SubmissionStatus.UPLOADED
     image_hash: str = ""
@@ -254,12 +279,14 @@ class SubmissionGradingRecord(BaseModel):
     is_mock: bool = False
     quality: ImageQualityReport = Field(default_factory=ImageQualityReport)
     extracted_questions: list[ExtractedQuestion] = Field(default_factory=list)
+    math_verification: MathVerificationSummary | None = None
     question_results: list[QuestionGradingResult] = Field(default_factory=list)
     ai_total_score: float = 0.0
     total_points: float = 10.0
     final_score: float | None = None
     needs_teacher_review: bool = False
     teacher_note: str | None = None
+    created_at: str = ""
 
 
 class TeacherReviewRequest(BaseModel):

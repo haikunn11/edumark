@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="vi" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#4f46e5" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <title>EduMark AI App — Chụp & Chấm Bài Viết Tay</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  <style>
+    body { -webkit-tap-highlight-color: transparent; }
+    .safe-bottom { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 5rem); }
+    .doc-frame {
+      box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.55);
+      border: 2px dashed rgba(99, 102, 241, 0.95);
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans selection:bg-indigo-600/40">
+
+  <!-- Top App Header -->
+  <header class="sticky top-0 z-30 bg-slate-900/95 backdrop-blur border-b border-slate-800 px-4 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-2.5">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/25">
+        <i class="fa-solid fa-camera text-white text-sm"></i>
+      </div>
+      <div>
+        <div class="flex items-center gap-1.5">
+          <h1 class="text-sm font-bold tracking-wide text-white">EduMark AI</h1>
+          <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">v0.2</span>
+        </div>
+        <p id="provider-pill" class="text-[11px] text-slate-400">Đang kiểm tra AI...</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <a href="/" class="text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1.5 rounded-lg border border-slate-700">
+        <i class="fa-solid fa-desktop mr-1"></i>Desktop
+      </a>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-lg mx-auto px-4 pt-4 safe-bottom">
+
+    <!-- TAB 1: CAPTURE -->
+    <section id="tab-capture" class="space-y-4">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Đề thi / Barem chấm</label>
+          <span class="text-[11px] text-indigo-400">Hỗ trợ nhiều trang</span>
+        </div>
+        <select id="exam-select" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500">
+          <option value="AUTO">🎯 Tự động nhận diện Đề bài (AI Auto)</option>
+          <option value="TOAN9_01">📐 TOAN9_01 — PT chứa ẩn ở mẫu</option>
+        </select>
+        <input id="student-name-input" type="text" placeholder="Họ tên học sinh (để trống AI tự đọc từ đầu giấy)" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500" />
+      </div>
+
+      <!-- Camera / Upload Card -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+        <div id="live-camera-box" class="hidden relative rounded-xl overflow-hidden bg-black aspect-[3/4]">
+          <video id="camera-video" autoplay playsinline class="w-full h-full object-cover"></video>
+          <div class="absolute inset-6 rounded-xl doc-frame pointer-events-none flex items-end justify-center pb-2">
+            <span class="text-[11px] bg-slate-900/80 text-indigo-200 px-2.5 py-1 rounded-full">Căn gọn trang bài làm vào khung</span>
+          </div>
+          <div class="absolute bottom-3 inset-x-0 flex items-center justify-center gap-4">
+            <button onclick="stopLiveCamera()" class="w-11 h-11 rounded-full bg-slate-900/80 text-white border border-slate-600 flex items-center justify-center">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+            <button onclick="snapFromVideo()" class="w-16 h-16 rounded-full bg-white border-4 border-indigo-500 shadow-lg active:scale-95 transition flex items-center justify-center">
+              <span class="w-11 h-11 rounded-full bg-indigo-600 block"></span>
+            </button>
+          </div>
+        </div>
+
+        <div id="capture-buttons" class="grid grid-cols-2 gap-3">
+          <label class="cursor-pointer bg-gradient-to-br from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-2xl p-4 flex flex-col items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 active:scale-98 transition">
+            <i class="fa-solid fa-camera text-2xl"></i>
+            <span class="text-sm font-bold">Chụp bài ngay</span>
+            <span class="text-[11px] text-indigo-100/80">Mở Camera sau</span>
+            <input id="native-camera-input" type="file" accept="image/*" capture="environment" class="hidden" onchange="handleFilesSelected(this.files)" />
+          </label>
+          <label class="cursor-pointer bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 active:scale-98 transition">
+            <i class="fa-solid fa-images text-2xl text-indigo-400"></i>
+            <span class="text-sm font-bold">Chọn từ thư viện</span>
+            <span class="text-[11px] text-slate-400">Chọn 1 hoặc nhiều ảnh</span>
+            <input id="gallery-input" type="file" accept="image/*" multiple class="hidden" onchange="handleFilesSelected(this.files)" />
+          </label>
+        </div>
+
+        <button onclick="startLiveCamera()" class="w-full py-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-xs font-medium text-indigo-300 flex items-center justify-center gap-2">
+          <i class="fa-solid fa-crop-simple"></i> Mở khung ngắm Camera trực tiếp (Document Scanner)
+        </button>
+
+        <!-- Captured Pages Tray -->
+        <div id="pages-tray-wrapper" class="hidden space-y-2.5 pt-2 border-t border-slate-800">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold text-slate-300">Các trang đã chụp (<span id="page-count-label">0</span>/10)</span>
+            <button onclick="clearPages()" class="text-[11px] text-rose-400 hover:text-rose-300">Xóa hết</button>
+          </div>
+          <div id="pages-tray" class="grid grid-cols-3 gap-2.5"></div>
+          <div id="quality-banner" class="hidden text-xs rounded-xl p-2.5 border"></div>
+        </div>
+      </div>
+
+      <!-- Grade CTA -->
+      <button id="btn-grade-now" onclick="submitMultipageGrade()" disabled class="w-full py-4 rounded-2xl font-bold text-sm bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 transition">
+        <i class="fa-solid fa-wand-magic-sparkles"></i>
+        <span id="grade-btn-text">Chụp ít nhất 1 trang để chấm bài</span>
+      </button>
+    </section>
+
+    <!-- TAB 2: RESULT -->
+    <section id="tab-result" class="hidden space-y-4">
+      <div id="result-empty" class="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-400 text-sm">
+        <i class="fa-solid fa-file-pen text-3xl text-slate-600 mb-3 block"></i>
+        Chưa có kết quả chấm nào. Hãy chụp bài làm ở tab <strong>Chụp bài</strong>!
+      </div>
+
+      <div id="result-content" class="hidden space-y-4">
+        <!-- Score Header -->
+        <div class="bg-gradient-to-br from-slate-900 to-indigo-950/60 border border-indigo-500/30 rounded-2xl p-4">
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <p id="res-exam-title" class="text-xs text-indigo-300 font-semibold"></p>
+              <h2 id="res-student-name" class="text-base font-bold text-white mt-0.5"></h2>
+              <p id="res-meta" class="text-[11px] text-slate-400 mt-1"></p>
+            </div>
+            <div class="text-right">
+              <div class="text-3xl font-extrabold text-emerald-400 leading-none">
+                <span id="res-score">0</span><span class="text-sm text-slate-400 font-medium">/<span id="res-max">10</span></span>
+              </div>
+              <span id="res-status-badge" class="inline-block mt-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full"></span>
+            </div>
+          </div>
+          <!-- SymPy Badge -->
+          <div id="res-sympy-box" class="hidden mt-3 text-xs rounded-xl px-3 py-2 border"></div>
+        </div>
+
+        <!-- Full Handwriting Transcription -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-indigo-300">
+              <i class="fa-solid fa-eye mr-1.5"></i>Toàn bộ chữ viết tay AI đọc được
+            </h3>
+            <span id="res-ocr-count" class="text-[11px] text-slate-400"></span>
+          </div>
+          <div id="res-ocr-lines" class="space-y-2 text-sm"></div>
+        </div>
+
+        <!-- Rubric Breakdown -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-2.5">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-emerald-300">
+            <i class="fa-solid fa-list-check mr-1.5"></i>Chấm chi tiết từng bước giải
+          </h3>
+          <div id="res-criteria" class="space-y-2"></div>
+          <div id="res-comment" class="mt-2 p-3 rounded-xl bg-indigo-950/40 border border-indigo-500/20 text-xs text-slate-200 leading-relaxed"></div>
+        </div>
+
+        <!-- Quick HITL Review -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-amber-300">
+            <i class="fa-solid fa-user-check mr-1.5"></i>Giáo viên đối soát & chốt điểm
+          </h3>
+          <div class="flex items-center justify-between bg-slate-800/80 rounded-xl p-2.5">
+            <span class="text-xs text-slate-300">Điều chỉnh điểm chốt:</span>
+            <div class="flex items-center gap-2">
+              <button onclick="adjustOverride(-0.25)" class="w-9 h-9 rounded-lg bg-slate-700 hover:bg-slate-600 font-bold text-sm">-0.25</button>
+              <input id="override-score-input" type="number" step="0.25" min="0" class="w-16 text-center bg-slate-950 border border-slate-700 rounded-lg py-1.5 text-sm font-bold text-white" />
+              <button onclick="adjustOverride(0.25)" class="w-9 h-9 rounded-lg bg-slate-700 hover:bg-slate-600 font-bold text-sm">+0.25</button>
+            </div>
+          </div>
+          <textarea id="teacher-note-input" rows="2" placeholder="Ghi chú / lời phê bổ sung của giáo viên..." class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"></textarea>
+          <button onclick="approveCurrent()" class="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg">
+            <i class="fa-solid fa-check-double"></i> Chốt điểm & Lưu vào sổ điểm
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: HISTORY -->
+    <section id="tab-history" class="hidden space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400">Lịch sử bài đã chấm (SQLite)</h2>
+        <button onclick="loadHistory()" class="text-xs text-indigo-400 hover:text-indigo-300">
+          <i class="fa-solid fa-rotate mr-1"></i>Tải lại
+        </button>
+      </div>
+      <div id="history-list" class="space-y-2.5"></div>
+    </section>
+
+  </main>
+
+  <!-- Bottom Tab Bar -->
+  <nav class="fixed bottom-0 inset-x-0 z-30 bg-slate-900/95 backdrop-blur border-t border-slate-800 px-2 py-2">
+    <div class="max-w-lg mx-auto grid grid-cols-3 gap-1">
+      <button onclick="switchTab('capture')" id="nav-capture" class="py-1.5 rounded-xl flex flex-col items-center gap-1 text-indigo-400 bg-indigo-500/10">
+        <i class="fa-solid fa-camera text-base"></i>
+        <span class="text-[11px] font-semibold">Chụp bài</span>
+      </button>
+      <button onclick="switchTab('result')" id="nav-result" class="py-1.5 rounded-xl flex flex-col items-center gap-1 text-slate-400">
+        <i class="fa-solid fa-square-poll-vertical text-base"></i>
+        <span class="text-[11px] font-semibold">Kết quả</span>
+      </button>
+      <button onclick="switchTab('history')" id="nav-history" class="py-1.5 rounded-xl flex flex-col items-center gap-1 text-slate-400">
+        <i class="fa-solid fa-clock-rotate-left text-base"></i>
+        <span class="text-[11px] font-semibold">Lịch sử</span>
+      </button>
+    </div>
+  </nav>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+    }
+
+    let capturedPages = []; // [{ file: File, url: string, quality: object | null }]
+    let currentRecord = null;
+    let videoStream = null;
+
+    async function initApp() {
+      try {
+        const [keyRes, examsRes] = await Promise.all([
+          fetch('/api/v1/config/key-status'),
+          fetch('/api/v1/exams')
+        ]);
+        const keyData = await keyRes.json();
+        const pill = document.getElementById('provider-pill');
+        pill.textContent = keyData.configured
+          ? `🟢 Live AI: ${keyData.provider.toUpperCase()} (${keyData.model})`
+          : '🟡 Offline Mock (Cài API Key trên Desktop để chấm bài thật)';
+
+        const exams = await examsRes.json();
+        const sel = document.getElementById('exam-select');
+        sel.innerHTML = '';
+        exams.forEach((ex) => {
+          const opt = document.createElement('option');
+          opt.value = ex.exam_id;
+          opt.textContent = ex.exam_id === 'AUTO'
+            ? '🎯 Tự động nhận diện Đề bài (AI Auto)'
+            : `📐 ${ex.exam_id} — ${ex.title || ex.exam_title}`;
+          sel.appendChild(opt);
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function switchTab(name) {
+      ['capture', 'result', 'history'].forEach((t) => {
+        document.getElementById(`tab-${t}`).classList.toggle('hidden', t !== name);
+        const nav = document.getElementById(`nav-${t}`);
+        if (t === name) {
+          nav.className = 'py-1.5 rounded-xl flex flex-col items-center gap-1 text-indigo-400 bg-indigo-500/10';
+        } else {
+          nav.className = 'py-1.5 rounded-xl flex flex-col items-center gap-1 text-slate-400';
+        }
+      });
+      if (name === 'history') loadHistory();
+    }
+
+    async function startLiveCamera() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert('Trình duyệt không hỗ trợ Live Camera (cần HTTPS hoặc localhost). Hãy dùng nút "Chụp bài ngay"!');
+        return;
+      }
+      try {
+        videoStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false
+        });
+        document.getElementById('camera-video').srcObject = videoStream;
+        document.getElementById('live-camera-box').classList.remove('hidden');
+        document.getElementById('capture-buttons').classList.add('hidden');
+      } catch (err) {
+        alert('Không thể mở Camera trực tiếp: ' + err.message);
+      }
+    }
+
+    function stopLiveCamera() {
+      if (videoStream) {
+        videoStream.getTracks().forEach((t) => t.stop());
+        videoStream = null;
+      }
+      document.getElementById('live-camera-box').classList.add('hidden');
+      document.getElementById('capture-buttons').classList.remove('hidden');
+    }
+
+    function snapFromVideo() {
+      const video = document.getElementById('camera-video');
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 960;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const f = new File([blob], `page_${capturedPages.length + 1}.jpg`, { type: 'image/jpeg' });
+        stopLiveCamera();
+        handleFilesSelected([f]);
+      }, 'image/jpeg', 0.92);
+    }
+
+    async function handleFilesSelected(fileList) {
+      if (!fileList || fileList.length === 0) return;
+      for (const file of Array.from(fileList)) {
+        if (capturedPages.length >= 10) break;
+        const entry = { file, url: URL.createObjectURL(file), quality: null };
+        capturedPages.push(entry);
+        renderPagesTray();
+        // Chạy kiểm tra chất lượng tức thì cho trang vừa chụp
+        try {
+          const fd = new FormData();
+          fd.append('file', file);
+          const qRes = await fetch('/api/v1/submissions/quality-check', { method: 'POST', body: fd });
+          if (qRes.ok) {
+            entry.quality = await qRes.json();
+            renderPagesTray();
+          }
+        } catch (_) {}
+      }
+      document.getElementById('native-camera-input').value = '';
+      document.getElementById('gallery-input').value = '';
+    }
+
+    function removePage(idx) {
+      capturedPages.splice(idx, 1);
+      renderPagesTray();
+    }
+
+    function clearPages() {
+      capturedPages = [];
+      renderPagesTray();
+    }
+
+    function renderPagesTray() {
+      const wrap = document.getElementById('pages-tray-wrapper');
+      const tray = document.getElementById('pages-tray');
+      const banner = document.getElementById('quality-banner');
+      const btn = document.getElementById('btn-grade-now');
+      const btnTxt = document.getElementById('grade-btn-text');
+
+      document.getElementById('page-count-label').textContent = capturedPages.length;
+      wrap.classList.toggle('hidden', capturedPages.length === 0);
+      btn.disabled = capturedPages.length === 0;
+      btnTxt.textContent = capturedPages.length === 0
+        ? 'Chụp ít nhất 1 trang để chấm bài'
+        : `Đọc chữ viết tay & Chấm ngay (${capturedPages.length} trang)`;
+
+      tray.innerHTML = '';
+      let warnings = [];
+      capturedPages.forEach((p, idx) => {
+        const ok = !p.quality || p.quality.is_acceptable;
+        if (p.quality && p.quality.warnings && p.quality.warnings.length) {
+          warnings.push(`Trang ${idx + 1}: ${p.quality.warnings.join(' ')}`);
+        }
+        const card = document.createElement('div');
+        card.className = 'relative rounded-xl overflow-hidden border ' + (ok ? 'border-emerald-500/40' : 'border-amber-500');
+        card.innerHTML = `
+          <img src="${p.url}" class="w-full h-24 object-cover" />
+          <span class="absolute top-1 left-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-950/80 text-white">Tr.${idx + 1}</span>
+          <button onclick="removePage(${idx})" class="absolute top-1 right-1 w-5 h-5 rounded-full bg-rose-600 text-white text-[10px] flex items-center justify-center">×</button>
+          <div class="absolute bottom-0 inset-x-0 text-[9px] text-center py-0.5 font-semibold ${ok ? 'bg-emerald-600/85 text-white' : 'bg-amber-500/90 text-slate-950'}">
+            ${p.quality ? (ok ? '✓ Rõ nét' : '⚠ Hơi mờ/tối') : 'Đang kiểm...'}
+          </div>
+        `;
+        tray.appendChild(card);
+      });
+
+      if (warnings.length) {
+        banner.className = 'text-xs rounded-xl p-2.5 border bg-amber-500/15 border-amber-500/40 text-amber-200';
+        banner.textContent = '⚠ ' + warnings.join(' | ');
+        banner.classList.remove('hidden');
+      } else if (capturedPages.length > 0 && capturedPages.every((p) => p.quality)) {
+        banner.className = 'text-xs rounded-xl p-2.5 border bg-emerald-500/15 border-emerald-500/40 text-emerald-200';
+        banner.textContent = '✅ Ảnh rõ nét, đủ ánh sáng — sẵn sàng nhận diện trọn vẹn chữ viết tay!';
+        banner.classList.remove('hidden');
+      } else {
+        banner.classList.add('hidden');
+      }
+    }
+
+    async function submitMultipageGrade() {
+      if (capturedPages.length === 0) return;
+      const btn = document.getElementById('btn-grade-now');
+      const btnTxt = document.getElementById('grade-btn-text');
+      btn.disabled = true;
+      btnTxt.textContent = 'AI đang đọc chữ viết tay & kiểm chứng toán...';
+
+      try {
+        const fd = new FormData();
+        capturedPages.forEach((p) => fd.append('files', p.file));
+        fd.append('exam_id', document.getElementById('exam-select').value);
+        fd.append('student_name', document.getElementById('student-name-input').value.trim() || 'Học sinh ẩn danh');
+
+        const res = await fetch('/api/v1/submissions/grade-multipage', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) {
+          const msg = (data.detail && data.detail.message) || data.detail || 'Lỗi chấm bài';
+          alert('Không thể chấm bài: ' + msg);
+          return;
+        }
+        currentRecord = data;
+        renderResult(data);
+        switchTab('result');
+      } catch (err) {
+        alert('Lỗi kết nối server: ' + err.message);
+      } finally {
+        btn.disabled = capturedPages.length === 0;
+        btnTxt.textContent = `Đọc chữ viết tay & Chấm ngay (${capturedPages.length} trang)`;
+      }
+    }
+
+    function renderResult(rec) {
+      document.getElementById('result-empty').classList.add('hidden');
+      document.getElementById('result-content').classList.remove('hidden');
+
+      document.getElementById('res-exam-title').textContent = rec.exam_title || rec.exam_id;
+      document.getElementById('res-student-name').textContent = rec.student_name || 'Học sinh ẩn danh';
+      document.getElementById('res-meta').textContent = `${rec.page_count || 1} trang · Mã: ${rec.submission_id}` + (rec.cache_hit ? ' · ⚡ Cache' : '');
+      const score = rec.final_score != null ? rec.final_score : rec.ai_total_score;
+      document.getElementById('res-score').textContent = score;
+      document.getElementById('res-max').textContent = rec.total_points || 10;
+
+      const badge = document.getElementById('res-status-badge');
+      if (rec.status === 'APPROVED') {
+        badge.className = 'inline-block mt-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+        badge.textContent = '✓ ĐÃ CHỐT ĐIỂM';
+      } else if (rec.status === 'FLAGGED_REVIEW') {
+        badge.className = 'inline-block mt-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40';
+        badge.textContent = '⚠ CẦN ĐỐI SOÁT';
+      } else {
+        badge.className = 'inline-block mt-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40';
+        badge.textContent = 'CHỜ DUYỆT';
+      }
+
+      // SymPy verification box
+      const mvBox = document.getElementById('res-sympy-box');
+      if (rec.math_verification && rec.math_verification.equations_checked > 0) {
+        const hasErr = rec.math_verification.invalid_transitions > 0;
+        mvBox.className = 'mt-3 text-xs rounded-xl px-3 py-2 border ' + (hasErr
+          ? 'bg-rose-500/15 border-rose-500/40 text-rose-200'
+          : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200');
+        mvBox.textContent = (hasErr ? '⚠ ' : '🧮 ') + rec.math_verification.summary;
+        mvBox.classList.remove('hidden');
+      } else {
+        mvBox.classList.add('hidden');
+      }
+
+      // OCR Lines
+      const ocrBox = document.getElementById('res-ocr-lines');
+      ocrBox.innerHTML = '';
+      let lineCount = 0;
+      (rec.extracted_questions || []).forEach((q) => {
+        (q.lines || []).forEach((l) => {
+          lineCount++;
+          const div = document.createElement('div');
+          const strike = l.is_strikethrough || l.line_type === 'scratch';
+          div.className = 'p-2.5 rounded-xl border ' + (strike
+            ? 'bg-slate-950/60 border-slate-800 text-slate-500 line-through'
+            : 'bg-slate-800/70 border-slate-700/70 text-slate-100');
+          const content = l.latex || l.raw_text || '';
+          const wrapped = (content.includes('\\') || content.includes('=')) && !content.includes('$') ? `$${content}$` : content;
+          div.innerHTML = `
+            <div class="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+              <span>Trang ${l.page_no || 1} · Dòng ${l.line_no}</span>
+              <span>${strike ? 'Đã gạch bỏ' : (Math.round((l.confidence || 0.9) * 100) + '%')}</span>
+            </div>
+            <div class="overflow-x-auto">${wrapped}</div>
+          `;
+          ocrBox.appendChild(div);
+        });
+      });
+      document.getElementById('res-ocr-count').textContent = `${lineCount} dòng`;
+
+      // Criteria breakdown
+      const critBox = document.getElementById('res-criteria');
+      critBox.innerHTML = '';
+      let summaryComments = [];
+      (rec.question_results || []).forEach((qr) => {
+        if (qr.teacher_summary_comment) summaryComments.push(qr.teacher_summary_comment);
+        (qr.criteria_evaluations || []).forEach((c) => {
+          const color = c.status === 'passed'
+            ? 'border-emerald-500/30 bg-emerald-500/10'
+            : c.status === 'partial'
+            ? 'border-amber-500/30 bg-amber-500/10'
+            : 'border-rose-500/30 bg-rose-500/10';
+          const item = document.createElement('div');
+          item.className = `p-3 rounded-xl border ${color}`;
+          item.innerHTML = `
+            <div class="flex items-center justify-between text-xs font-bold">
+              <span>${c.name || c.criterion_id}</span>
+              <span>${c.earned_points}/${c.max_points}đ</span>
+            </div>
+            <p class="text-[11px] text-slate-300 mt-1">${c.feedback || ''}</p>
+          `;
+          critBox.appendChild(item);
+        });
+      });
+      document.getElementById('res-comment').textContent = '💬 Lời phê đề xuất: ' + (summaryComments.join(' ') || 'Đã chấm xong.');
+
+      document.getElementById('override-score-input').value = score;
+      document.getElementById('override-score-input').max = rec.total_points || 10;
+      document.getElementById('teacher-note-input').value = rec.teacher_note || '';
+
+      if (window.renderMathInElement) {
+        renderMathInElement(document.getElementById('result-content'), {
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false }
+          ],
+          throwOnError: false
+        });
+      }
+    }
+
+    function adjustOverride(delta) {
+      const inp = document.getElementById('override-score-input');
+      const maxVal = parseFloat(inp.max || '10');
+      const next = Math.max(0, Math.min(maxVal, Math.round((parseFloat(inp.value || '0') + delta) * 100) / 100));
+      inp.value = next;
+    }
+
+    async function approveCurrent() {
+      if (!currentRecord) return;
+      const newScore = parseFloat(document.getElementById('override-score-input').value || '0');
+      const note = document.getElementById('teacher-note-input').value.trim();
+      const overrides = {};
+      if (currentRecord.question_results && currentRecord.question_results.length === 1) {
+        overrides[currentRecord.question_results[0].question_id] = newScore;
+      }
+
+      const res = await fetch('/api/v1/submissions/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          submission_id: currentRecord.submission_id,
+          score_overrides: overrides,
+          teacher_note: note,
+          approve: true
+        })
+      });
+      if (!res.ok) {
+        alert('Lỗi chốt điểm!');
+        return;
+      }
+      currentRecord = await res.json();
+      renderResult(currentRecord);
+      alert('✅ Đã chốt điểm và lưu bền vững vào SQLite!');
+    }
+
+    async function loadHistory() {
+      const box = document.getElementById('history-list');
+      box.innerHTML = '<div class="text-xs text-slate-400 p-4 text-center">Đang tải lịch sử...</div>';
+      try {
+        const res = await fetch('/api/v1/submissions?limit=30');
+        const list = await res.json();
+        if (!list.length) {
+          box.innerHTML = '<div class="text-xs text-slate-400 p-6 text-center bg-slate-900 rounded-2xl border border-slate-800">Chưa có bài chấm nào trong cơ sở dữ liệu.</div>';
+          return;
+        }
+        box.innerHTML = '';
+        list.forEach((rec) => {
+          const score = rec.final_score != null ? rec.final_score : rec.ai_total_score;
+          const card = document.createElement('button');
+          card.className = 'w-full text-left bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between transition';
+          card.onclick = () => { currentRecord = rec; renderResult(rec); switchTab('result'); };
+          card.innerHTML = `
+            <div>
+              <p class="text-sm font-bold text-white">${rec.student_name}</p>
+              <p class="text-[11px] text-slate-400">${rec.exam_title || rec.exam_id} · ${rec.page_count || 1} trang</p>
+            </div>
+            <div class="text-right">
+              <p class="text-lg font-extrabold text-emerald-400">${score}/${rec.total_points}</p>
+              <span class="text-[10px] font-semibold ${rec.status === 'APPROVED' ? 'text-emerald-400' : 'text-amber-400'}">${rec.status}</span>
+            </div>
+          `;
+          box.appendChild(card);
+        });
+      } catch (e) {
+        box.innerHTML = '<div class="text-xs text-rose-400 p-4 text-center">Lỗi tải lịch sử.</div>';
+      }
+    }
+
+    initApp();
+  </script>
+</body>
+</html>

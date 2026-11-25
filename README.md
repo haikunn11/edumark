@@ -1,60 +1,69 @@
-# EduMark AI - Khung Backbone Dự án Chấm bài Tự động
+# EduMark AI — Hệ Thống Chấm Bài Tự Luận Viết Tay Thông Minh (`v0.2.0`)
 
-Khung kiến trúc xương sống (Backbone Architecture) của dự án **EduMark AI** - Hệ thống chấm bài tự luận viết tay thông minh cho giáo viên và học sinh cấp 2 (THCS), ứng dụng mô hình **Swarm 2-Agent (Vision OCR + Reasoning Grader) + Caching + Human-in-the-Loop**.
+> **🎯 Mục tiêu cuối cùng (North Star):** Mở **App** → **Chụp bài làm viết tay của học sinh** → **Nhìn trọn vẹn 100% dữ liệu chữ viết tay** → **Chấm bài chuẩn xác**.
 
----
-
-## 📁 Cấu trúc Thư mục Dự án
-
-```
-d:\duanvoiemy\
-├── backend\
-│   └── app\
-│       ├── main.py                  # Điểm khởi chạy FastAPI Server & Web App
-│       ├── core\
-│       │   ├── config.py            # Cấu hình hệ thống, ngưỡng chất lượng ảnh, API keys
-│       │   ├── cache.py             # Bộ nhớ đệm InMemory & Redis (MD5 Image Hashing)
-│       │   └── storage.py           # Quản lý lưu trữ ảnh bài thi (Local / Cloudflare R2)
-│       ├── models\
-│       │   └── schemas.py           # Pydantic Schemas (Barem, Submission, Score, Rubric)
-│       ├── services\
-│       │   ├── preprocessor.py      # Tiền xử lý ảnh (Độ nét, tăng tương phản, nắn thẳng)
-│       │   ├── agent1_ocr.py        # Agent 1: Nhận diện chữ viết tay & xuất cấu trúc LaTeX
-│       │   ├── agent2_grader.py     # Agent 2: Chấm theo Barem từng bước & bắt lỗi lan truyền
-│       │   └── pipeline.py          # Orchestrator điều phối toàn bộ luồng chấm bài
-│       ├── api\
-│       │   └── routes.py            # REST API endpoints (/exams, /grade, /review)
-│       └── static\
-│           └── index.html           # Giao diện Web Split-Screen Dashboard tương tác
-├── run_test_flow.py                 # Kịch bản chạy Test Flow tự động 5 bước
-├── 00_Gemini_Imported_Chat.md       # Lịch sử 24 lượt hội thoại kỹ thuật đã đồng bộ từ Gemini
-├── 01_De_Xuat_Du_An_EduMark_AI.md   # Bản đề xuất dự án tổng quan (gửi đối tác/sếp)
-└── 02_Ke_Hoach_Trien_Khai_MVP_Web.md# Kế hoạch chi tiết MVP Web Dashboard
-```
+Ứng dụng kiến trúc **Swarm 2-Agent (Vision OCR + Reasoning Grader) + SymPy Symbolic Math Verifier + SQLite Persistence + Human-in-the-Loop**.
 
 ---
 
-## 🚀 Hướng Dẫn Chạy Test Flow
+## 📁 Cấu Trúc Dự Án
 
-### 1. Chạy Kịch bản Kiểm thử Tự động (Console Test Flow)
-Chạy lệnh sau trong PowerShell hoặc Terminal:
+```text
+edumark/
+├── backend/app/
+│   ├── main.py                      # FastAPI Server, /health, Desktop (/) & Mobile PWA (/app)
+│   ├── core/
+│   │   ├── config.py                # Settings (.env, AI_PROVIDER, SQLite path, Admin token)
+│   │   ├── database.py              # SQLite WAL Persistence (exams, submissions, batch_jobs)
+│   │   ├── cache.py                 # MD5 Image Hash Cache (TTL 24h)
+│   │   └── storage.py               # Local Storage Engine cho ảnh bài thi
+│   ├── models/
+│   │   └── schemas.py               # Pydantic V2 Schemas (Rubric, Multi-Page OCR, SymPy, Grading)
+│   ├── services/
+│   │   ├── preprocessor.py          # EXIF, 4-pt Perspective Warp, Shadow Removal, Deskew, Quality Check
+│   │   ├── agent1_ocr.py            # Agent 1: Full-Page Multi-Page OCR (OpenAI/Gemini + Strikethrough + Header)
+│   │   ├── math_verifier.py         # Kiểm chứng toán học tất định bằng SymPy
+│   │   ├── agent2_grader.py         # Agent 2: Rule-based + OpenAI/Gemini Auto-Rubric + Error Propagation
+│   │   ├── pipeline.py              # Orchestrator đa trang (1..10 ảnh/bài)
+│   │   └── batch.py                 # PDF Split (PyMuPDF), ZIP Extract, Async Batch, Excel VnEdu/SMAS
+│   ├── api/
+│   │   └── routes.py                # REST API /api/v1/* (CRUD Exams, Quality Check, Multi-Page, Review, Export)
+│   └── static/
+│       ├── index.html               # Desktop Split-Screen Dashboard (TailwindCSS + KaTeX)
+│       ├── mobile.html              # Mobile PWA App Chụp Bài Trực Tiếp (/app)
+│       ├── manifest.json            # PWA Manifest
+│       └── sw.js                    # Service Worker
+├── tests/                           # 8 bộ pytest (52 test cases)
+├── planning/                        # Bộ SPEC theo chuẩn Spec-First (v0.1.0 & v0.2.0)
+├── brain4agent/                     # Bộ nhớ Não Bộ Đa Tầng V5.2
+├── requirements.txt                 # Dependencies chuẩn
+├── .env.example                     # Mẫu cấu hình môi trường
+└── run_test_flow.py                 # Kịch bản kiểm thử E2E 10 bước
+```
+
+---
+
+## 🚀 Cài Đặt & Khởi Chạy Nhanh
+
+### 1. Cài đặt môi trường
 ```powershell
-python run_test_flow.py
+pip install -r requirements.txt
+copy .env.example .env
+# Điền GEMINI_API_KEY hoặc OPENAI_API_KEY vào file .env
 ```
-**Quy trình kiểm thử bao gồm:**
-1. Khởi tạo Barem đề thi Toán 9: Giải phương trình chứa ẩn ở mẫu (2.0 điểm).
-2. Tạo ảnh bài làm viết tay của học sinh (ngẫu nhiên hóa nét chữ và nội dung).
-3. **Chạy Pipeline lần 1 (Chưa có Cache):** Tiền xử lý ảnh -> Agent 1 bóc tách LaTeX -> Agent 2 đối chiếu barem -> Bắt lỗi thiếu ĐKXĐ (0đ/0.5đ), biến đổi đúng (+1.0đ), quên đối chiếu (0đ/0.5đ) -> Đạt 1.0/2.0 điểm -> Tự sinh lời phê sư phạm.
-4. **Chạy Pipeline lần 2 (Kiểm tra Cache):** Nhận diện ảnh trùng khớp MD5 -> Tái sử dụng kết quả trong Cache (0đ tiền API, phản hồi tức thì).
-5. **Cơ chế Human-in-the-Loop:** Giáo viên xem xét, cộng 0.25đ khuyến khích và bấm Duyệt (`APPROVED`).
 
----
-
-### 2. Khởi chạy Giao diện Web Dashboard (Split-Screen)
-Để trải nghiệm giao diện người dùng thực tế:
+### 2. Chạy Server (Desktop & Mobile PWA)
 ```powershell
 python -m uvicorn backend.app.main:app --reload --port 8000
 ```
-Sau đó mở trình duyệt truy cập:
-* **Giao diện Chấm đối soát Split-Screen:** [http://127.0.0.1:8000](http://127.0.0.1:8000)
-* **Tài liệu API tương tác (Swagger UI):** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+Truy cập:
+- **📱 Mobile App Chụp Bài (PWA):** `http://127.0.0.1:8000/app`
+- **🖥️ Desktop Split-Screen Dashboard:** `http://127.0.0.1:8000/`
+- **📘 Swagger API Docs:** `http://127.0.0.1:8000/docs`
+- **❤️ Health Check:** `http://127.0.0.1:8000/health`
+
+### 3. Chạy Kiểm Thử Tự Động
+```powershell
+python -m pytest tests/ -v
+python run_test_flow.py
+```
