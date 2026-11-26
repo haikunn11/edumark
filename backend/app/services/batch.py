@@ -267,10 +267,18 @@ def export_to_excel(
     else:
         ws1 = wb.active
         ws1.title = "Bảng Điểm Tổng Hợp"
-        headers1 = [
-            "STT", "Mã Bài Thi", "Tên Học Sinh", "Điểm AI", "Điểm Chốt",
-            "Trạng Thái", "Lỗi Lan Truyền", "Cache Hit", "Ghi Chú Giáo Viên",
-        ]
+        # Thu thập danh sách mã câu hỏi để hiển thị từng cột câu ngay trên Sheet 1
+        ordered_qids: list[str] = []
+        for rec in records:
+            for q in rec.question_results:
+                if q.question_id and q.question_id not in ordered_qids:
+                    ordered_qids.append(q.question_id)
+
+        headers1 = (
+            ["STT", "Mã Bài Thi", "Tên Học Sinh"]
+            + ordered_qids
+            + ["Điểm AI", "Điểm Chốt", "Trạng Thái", "Lỗi Lan Truyền", "Nhận Xét & Ghi Chú"]
+        )
         ws1.append(headers1)
         for col_idx in range(1, len(headers1) + 1):
             cell = ws1.cell(row=1, column=col_idx)
@@ -280,17 +288,25 @@ def export_to_excel(
 
         for idx, rec in enumerate(records, start=1):
             has_ep = any(q.error_propagation_detected for q in rec.question_results)
-            row = [
-                idx,
-                rec.submission_id,
-                rec.student_name,
-                rec.ai_total_score,
-                rec.final_score if rec.final_score is not None else rec.ai_total_score,
-                rec.status.value,
-                "Có (Bảo lưu)" if has_ep else "Không",
-                "Hit" if rec.cache_hit else "Miss",
-                rec.teacher_note or "",
-            ]
+            q_map = {q.question_id: q.suggested_score for q in rec.question_results}
+            q_cols = [q_map.get(qid, "") for qid in ordered_qids]
+            ai_comments = " | ".join(
+                f"[{q.question_id}] {q.teacher_summary_comment}"
+                for q in rec.question_results
+                if q.teacher_summary_comment and "không tìm thấy trong bài nộp" not in q.teacher_summary_comment.lower()
+            )
+            note_combined = " ; ".join(p for p in [rec.teacher_note or "", ai_comments] if p)[:500]
+            row = (
+                [idx, rec.submission_id, rec.student_name]
+                + q_cols
+                + [
+                    rec.ai_total_score,
+                    rec.final_score if rec.final_score is not None else rec.ai_total_score,
+                    rec.status.value,
+                    "Có (Bảo lưu)" if has_ep else "Không",
+                    note_combined,
+                ]
+            )
             ws1.append(row)
             for c_idx in range(1, len(row) + 1):
                 cell = ws1.cell(row=idx + 1, column=c_idx)

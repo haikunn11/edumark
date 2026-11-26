@@ -57,6 +57,14 @@ class EduMarkDatabase:
                     created_at TEXT NOT NULL,
                     payload_json TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS gradebooks (
+                    gradebook_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    exam_id TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    config_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
                 """
             )
 
@@ -191,6 +199,51 @@ class EduMarkDatabase:
         if not row:
             return None
         return json.loads(row["payload_json"])
+
+    # --- Gradebooks ---
+    def save_gradebook(self, meta: dict) -> dict:
+        now = datetime.now(timezone.utc).isoformat()
+        meta["updated_at"] = now
+        config_json = json.dumps(meta, ensure_ascii=False)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO gradebooks (gradebook_id, name, exam_id, file_path, config_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(gradebook_id) DO UPDATE SET
+                    name = excluded.name,
+                    exam_id = excluded.exam_id,
+                    file_path = excluded.file_path,
+                    config_json = excluded.config_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    meta["gradebook_id"],
+                    meta.get("name", "Bảng điểm"),
+                    meta.get("exam_id", "AUTO"),
+                    meta.get("file_path", ""),
+                    config_json,
+                    now,
+                ),
+            )
+        return meta
+
+    def get_gradebook(self, gradebook_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT config_json FROM gradebooks WHERE gradebook_id = ?", (gradebook_id,)).fetchone()
+        if not row:
+            return None
+        return json.loads(row["config_json"])
+
+    def list_gradebooks(self) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT config_json FROM gradebooks ORDER BY updated_at DESC").fetchall()
+        return [json.loads(r["config_json"]) for r in rows]
+
+    def delete_gradebook(self, gradebook_id: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute("DELETE FROM gradebooks WHERE gradebook_id = ?", (gradebook_id,))
+        return cur.rowcount > 0
 
 
 db = EduMarkDatabase()

@@ -38,6 +38,15 @@ from backend.app.services.student_clusterer import (
     grade_smart_folder_multistudent,
     zip_directory_recursive,
 )
+from backend.app.services.gradebook import (
+    create_gradebook,
+    fill_batch_into_gradebook,
+    fill_submission_into_gradebook,
+    import_excel_template,
+    list_gradebooks,
+    read_gradebook_preview,
+    update_gradebook_config,
+)
 from backend.app.services.pipeline import grading_pipeline
 from backend.app.services.preprocessor import assess_capture_quality
 
@@ -72,6 +81,37 @@ class RegradeQuestionRequest(BaseModel):
     question_id: str
     edited_lines: list[EditedLineInput] = []
     run_reread_ocr: bool = False
+
+
+class CreateGradebookRequest(BaseModel):
+    name: str
+    exam_id: str = "AUTO"
+    columns: list[str] = []
+    student_names: list[str] = []
+
+
+class UpdateGradebookConfigRequest(BaseModel):
+    name_col: int | None = None
+    score_col: int | None = None
+    note_col: int | None = None
+    add_column_name: str = ""
+
+
+class FillSubmissionRequest(BaseModel):
+    submission_id: str
+    target_row: int | None = None
+    score_col: int | None = None
+    note_col: int | None = None
+    student_name_override: str | None = None
+    auto_append: bool = True
+
+
+class FillBatchRequest(BaseModel):
+    batch_id: str = ""
+    submission_ids: list[str] = []
+    score_col: int | None = None
+    note_col: int | None = None
+    auto_append: bool = True
 
 router = APIRouter()
 
@@ -1237,3 +1277,135 @@ def export_exam_results_excel(
         )
     except ExportNoDataError as e:
         raise HTTPException(status_code=400, detail={"error_code": "E001", "message": str(e)})
+
+
+# --- Gradebooks (Sổ điểm & Điền vào file Excel có sẵn theo hàng/cột) ---
+@router.get("/gradebooks")
+def api_list_gradebooks() -> list[dict]:
+    return list_gradebooks()
+
+
+@router.post("/gradebooks/create")
+def api_create_gradebook(req: CreateGradebookRequest) -> dict:
+    q_ids: list[str] = []
+    if req.exam_id and req.exam_id != "AUTO":
+        exam = db.get_exam(req.exam_id)
+        if exam and exam.questions:
+            q_ids = [q.question_id for q in exam.questions if q.question_id]
+    return create_gradebook(
+        name=req.name,
+        exam_id=req.exam_id,
+        columns=req.columns or None,
+        student_names=req.student_names or None,
+        question_ids=q_ids or None,
+    )
+
+
+@router.post("/gradebooks/upload-template")
+async def api_upload_gradebook_template(
+    file: UploadFile = File(...),
+    name: str = Form(""),
+    exam_id: str = Form("AUTO"),
+    new_score_col_name: str = Form(""),
+) -> dict:
+    fname = (file.filename or "").lower()
+    if not fname.endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail={"error_code": "E001", "message": "Chỉ hỗ trợ mẫu bảng điểm định dạng Excel .xlsx."})
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail={"error_code": "E001", "message": "File Excel tải lên bị rỗng."})
+    try:
+        return import_excel_template(
+            file_bytes=raw,
+            filename=file.filename or "BangDiem.xlsx",
+            name=name,
+            exam_id=exam_id,
+            new_score_col_name=new_score_col_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"error_code": "E001", "message": str(exc)})
+
+
+@router.get("/gradebooks/{gradebook_id}")
+def api_get_gradebook(gradebook_id: str) -> dict:
+    try:
+        return read_gradebook_preview(gradebook_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"error_code": "E002", "message": str(exc)})
+
+
+@router.patch("/gradebooks/{gradebook_id}/config")
+def api_update_gradebook_config(gradebook_id: str, req: UpdateGradebookConfigRequest) -> dict:
+    try:
+        return update_gradebook_config(
+            gradebook_id=gradebook_id,
+            name_col=req.name_col,
+            score_col=req.score_col,
+            note_col=req.note_col,
+            add_column_name=req.add_column_name,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"error_code": "E002", "message": str(exc)})
+
+
+@router.post("/gradebooks/{gradebook_id}/fill-submission")
+def api_fill_submission_into_gradebook(gradebook_id: str, req: FillSubmissionRequest) -> dict:
+    rec = db.get_submission(req.submission_id) or SUBMISSION_DB.get(req.submission_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail={"error_code": "E002", "message": f"Không tìm thấy bài thi '{req.submission_id}'."})
+    try:
+        return fill_submission_into_gradebook(
+            gradebook_id=gradebook_id,
+            record=rec,
+            target_row=req.target_row,
+            score_col=req.score_col,
+            note_col=req.note_col,
+            student_name_override=req.student_name_override,
+            auto_append=req.auto_append,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"error_code": "E002", "message": str(exc)})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"error_code": "E001", "message": str(exc)})
+
+
+@router.post("/gradebooks/{gradebook_id}/fill-batch")
+def api_fill_batch_into_gradebook(gradebook_id: str, req: FillBatchRequest) -> dict:
+    records: list[SubmissionGradingRecord] = []
+    if req.batch_id:
+        records = db.list_submissions_by_prefix(f"{req.batch_id}_hs")
+    elif req.submission_ids:
+        for sid in req.submission_ids:
+            r = db.get_submission(sid) or SUBMISSION_DB.get(sid)
+            if r:
+                records.append(r)
+    if not records:
+        raise HTTPException(status_code=404, detail={"error_code": "E002", "message": "Không tìm thấy danh sách bài thi để điền vào bảng."})
+    try:
+        return fill_batch_into_gradebook(
+            gradebook_id=gradebook_id,
+            records=records,
+            score_col=req.score_col,
+            note_col=req.note_col,
+            auto_append=req.auto_append,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"error_code": "E002", "message": str(exc)})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"error_code": "E001", "message": str(exc)})
+
+
+@router.get("/gradebooks/{gradebook_id}/download")
+def api_download_gradebook_excel(gradebook_id: str):
+    meta = db.get_gradebook(gradebook_id)
+    if not meta or not os.path.isfile(meta.get("file_path", "")):
+        raise HTTPException(status_code=404, detail={"error_code": "E002", "message": "Không tìm thấy file Excel bảng điểm."})
+    with open(meta["file_path"], "rb") as f:
+        data = f.read()
+    from urllib.parse import quote
+    safe_dl = quote(f"{meta['name']}.xlsx")
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{safe_dl}"},
+    )

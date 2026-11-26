@@ -33,7 +33,7 @@
       <div>
         <div class="flex items-center gap-1.5">
           <h1 class="text-sm font-bold tracking-wide text-white">EduMark AI</h1>
-          <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">v0.5</span>
+          <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">v0.6</span>
         </div>
         <p id="provider-pill" class="text-[11px] text-slate-400">Đang kiểm tra AI...</p>
       </div>
@@ -210,6 +210,30 @@
           </h3>
           <div id="res-criteria" class="space-y-2"></div>
           <div id="res-comment" class="mt-2 p-3 rounded-xl bg-indigo-950/40 border border-indigo-500/20 text-xs text-slate-200 leading-relaxed"></div>
+        </div>
+
+        <!-- Fill vào Bảng điểm Excel (Tạo mới hoặc Template có sẵn theo Hàng/Cột) -->
+        <div class="bg-slate-900 border border-cyan-700/50 rounded-2xl p-4 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-cyan-300">
+              <i class="fa-solid fa-table mr-1.5"></i>Điền vào Bảng điểm Excel
+            </h3>
+            <button onclick="mobileCreateQuickGradebook()" class="text-[11px] text-cyan-300 hover:underline font-semibold">+ Tạo bảng mới</button>
+          </div>
+          <select id="mob-gb-select" onchange="loadMobileGradebookMeta()" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"></select>
+          <div class="grid grid-cols-2 gap-2">
+            <select id="mob-gb-col-select" class="bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-2 text-xs text-amber-300"></select>
+            <select id="mob-gb-row-select" class="bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-2 text-xs text-slate-200"></select>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="fillMobileGradebook()" class="flex-1 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow">
+              <i class="fa-solid fa-pen-to-square mr-1"></i> Điền vào Bảng
+            </button>
+            <a id="mob-gb-download" href="#" class="hidden px-3 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center">
+              <i class="fa-solid fa-download mr-1"></i> .xlsx
+            </a>
+          </div>
+          <p id="mob-gb-status" class="hidden text-[11px] text-emerald-300 font-mono"></p>
         </div>
 
         <!-- Quick HITL Review -->
@@ -753,6 +777,115 @@
           throwOnError: false
         });
       }
+      refreshMobileGradebooks();
+    }
+
+    async function refreshMobileGradebooks(selectId = null) {
+      try {
+        const res = await fetch('/api/v1/gradebooks');
+        if (!res.ok) return;
+        const list = await res.json();
+        const sel = document.getElementById('mob-gb-select');
+        if (!sel) return;
+        const prev = selectId || sel.value;
+        sel.innerHTML = '';
+        if (!list.length) {
+          sel.innerHTML = '<option value="">-- Chưa có bảng điểm (Bấm + Tạo bảng mới) --</option>';
+          return;
+        }
+        list.forEach((g) => {
+          const o = document.createElement('option');
+          o.value = g.gradebook_id;
+          o.textContent = `📊 ${g.name} (${g.filled_count}/${g.total_rows})`;
+          sel.appendChild(o);
+        });
+        if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
+        await loadMobileGradebookMeta();
+      } catch (_) {}
+    }
+
+    async function loadMobileGradebookMeta() {
+      const gbId = document.getElementById('mob-gb-select').value;
+      if (!gbId) return;
+      const res = await fetch(`/api/v1/gradebooks/${gbId}`);
+      if (!res.ok) return;
+      const gb = await res.json();
+      const colSel = document.getElementById('mob-gb-col-select');
+      const rowSel = document.getElementById('mob-gb-row-select');
+      colSel.innerHTML = '';
+      (gb.columns || []).forEach((c) => {
+        const o = document.createElement('option');
+        o.value = c.col_index;
+        o.textContent = `Cột ${c.col_letter}: ${c.name}`;
+        colSel.appendChild(o);
+      });
+      if (gb.score_col) colSel.value = String(gb.score_col);
+
+      rowSel.innerHTML = '<option value="">✨ Tự khớp tên / Thêm dòng mới</option>';
+      (gb.rows || []).forEach((r) => {
+        const o = document.createElement('option');
+        o.value = r.row_index;
+        o.textContent = `Dòng #${r.row_index}: ${r.student_name || '(Trống)'}`;
+        rowSel.appendChild(o);
+      });
+      const dl = document.getElementById('mob-gb-download');
+      dl.href = gb.download_url;
+      dl.classList.remove('hidden');
+    }
+
+    async function mobileCreateQuickGradebook() {
+      const name = prompt('Tên bảng điểm Excel mới:', (currentRecord && currentRecord.exam_title) || 'Bảng điểm lớp');
+      if (!name || !name.trim()) return;
+      const res = await fetch('/api/v1/gradebooks/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), exam_id: (currentRecord && currentRecord.exam_id) || 'AUTO' }),
+      });
+      if (res.ok) {
+        const gb = await res.json();
+        await refreshMobileGradebooks(gb.gradebook_id);
+      }
+    }
+
+    async function fillMobileGradebook() {
+      let gbId = document.getElementById('mob-gb-select').value;
+      if (!gbId) {
+        const resNew = await fetch('/api/v1/gradebooks/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'Bảng điểm EduMark', exam_id: (currentRecord && currentRecord.exam_id) || 'AUTO' }),
+        });
+        if (!resNew.ok) return alert('Không thể tạo bảng điểm');
+        const created = await resNew.json();
+        gbId = created.gradebook_id;
+      }
+      const scoreCol = parseInt(document.getElementById('mob-gb-col-select').value || '0', 10) || null;
+      const rowVal = document.getElementById('mob-gb-row-select').value;
+      const targetRow = rowVal ? parseInt(rowVal, 10) : null;
+      const st = document.getElementById('mob-gb-status');
+
+      if (currentMobileBatch && currentMobileBatch.students && !targetRow) {
+        const res = await fetch(`/api/v1/gradebooks/${gbId}/fill-batch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ batch_id: currentMobileBatch.batch_id, score_col: scoreCol, auto_append: true }),
+        });
+        const data = await res.json();
+        if (!res.ok) return alert((data.detail && data.detail.message) || 'Lỗi fill cả lớp');
+        st.textContent = `✅ Đã điền cả ${(data.filled_batch || []).length} học sinh vào "${data.name}"!`;
+        st.classList.remove('hidden');
+      } else if (currentRecord) {
+        const res = await fetch(`/api/v1/gradebooks/${gbId}/fill-submission`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ submission_id: currentRecord.submission_id, target_row: targetRow, score_col: scoreCol, auto_append: true }),
+        });
+        const data = await res.json();
+        if (!res.ok) return alert((data.detail && data.detail.message) || 'Lỗi fill điểm');
+        st.textContent = `✅ Đã điền ${data.filled_student} = ${data.filled_score}đ vào dòng #${data.filled_row_index}!`;
+        st.classList.remove('hidden');
+      }
+      await refreshMobileGradebooks(gbId);
     }
 
     function adjustOverride(delta) {

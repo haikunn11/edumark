@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import os
-from fastapi import FastAPI
+import traceback
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from backend.app.core.config import settings
 from backend.app.core.database import db
 from backend.app.api.routes import router as api_router
@@ -14,6 +15,20 @@ app = FastAPI(
     version=settings.VERSION,
     description="Backbone API phục vụ Hệ thống Chấm bài Tự luận Viết tay Thông minh EduMark AI",
 )
+
+
+@app.exception_handler(Exception)
+async def global_json_exception_handler(request: Request, exc: Exception):
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": {
+                "error_code": "E500",
+                "message": f"Lỗi xử lý nội bộ ({type(exc).__name__}): {exc}",
+            }
+        },
+    )
 
 origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()] or ["*"]
 app.add_middleware(

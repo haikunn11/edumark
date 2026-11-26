@@ -413,46 +413,49 @@ def grade_smart_folder_multistudent(
                     continue
 
                 reread_count += 1
-                expected_prompt = rq_by_id[q_res.question_id].question_text if q_res.question_id in rq_by_id else sq.question_text
-                prev_lines = [l.raw_text or l.latex for l in sq.lines]
-                updated_q, rr_usage = vision_agent.reread_question_from_image(
-                    image_bytes=src_page.proc_bytes,
-                    question_id=q_res.question_id,
-                    expected_prompt=expected_prompt,
-                    previous_lines=prev_lines,
-                    suspected_issue=q_res.teacher_summary_comment,
-                )
-                reread_ocr_in += int(rr_usage.get("input_tokens", 0) or 0)
-                reread_ocr_out += int(rr_usage.get("output_tokens", 0) or 0)
-                reread_ocr_th += int(rr_usage.get("thinking_tokens", 0) or 0)
-                reread_ocr_tot += int(rr_usage.get("total_tokens", 0) or 0)
+                try:
+                    expected_prompt = rq_by_id[q_res.question_id].question_text if q_res.question_id in rq_by_id else sq.question_text
+                    prev_lines = [l.raw_text or l.latex for l in sq.lines]
+                    updated_q, rr_usage = vision_agent.reread_question_from_image(
+                        image_bytes=src_page.proc_bytes,
+                        question_id=q_res.question_id,
+                        expected_prompt=expected_prompt,
+                        previous_lines=prev_lines,
+                        suspected_issue=q_res.teacher_summary_comment,
+                    )
+                    reread_ocr_in += int(rr_usage.get("input_tokens", 0) or 0)
+                    reread_ocr_out += int(rr_usage.get("output_tokens", 0) or 0)
+                    reread_ocr_th += int(rr_usage.get("thinking_tokens", 0) or 0)
+                    reread_ocr_tot += int(rr_usage.get("total_tokens", 0) or 0)
 
-                if updated_q and updated_q.lines:
-                    old_sig = re.sub(r"\s+", "", "".join(prev_lines))
-                    new_sig = re.sub(r"\s+", "", "".join(l.raw_text or l.latex for l in updated_q.lines))
-                    if new_sig and new_sig != old_sig:
-                        for nl in updated_q.lines:
-                            nl.source_file = sq.source_files[0]
-                        sq.lines = updated_q.lines
-                        sq.ocr_warnings.append("2-pass OCR đã soi lại ảnh gốc và hiệu chỉnh nét chữ")
-                        new_mv = verify_question_math(sq)
-                        mv_map[sq.question_id] = new_mv
-                        reasoning_agent.reset_last_usage()
-                        if is_fixed_rubric and q_res.question_id in rq_by_id:
-                            q_results[q_idx] = reasoning_agent.grade_question(
-                                sq, rq_by_id[q_res.question_id], run_self_critique=True, use_llm=True, math_verification=new_mv
-                            )
-                        else:
-                            _, new_res = reasoning_agent.grade_auto_rubric(sq, math_verification=new_mv)
-                            new_res.question_id = q_res.question_id
-                            new_res.max_score = q_res.max_score
-                            new_res.total_points = q_res.total_points
-                            q_results[q_idx] = new_res
-                        rr_g = dict(getattr(reasoning_agent, "last_usage", {}))
-                        reread_grd_in += int(rr_g.get("input_tokens", 0) or 0)
-                        reread_grd_out += int(rr_g.get("output_tokens", 0) or 0)
-                        reread_grd_th += int(rr_g.get("thinking_tokens", 0) or 0)
-                        reread_grd_tot += int(rr_g.get("total_tokens", 0) or 0)
+                    if updated_q and updated_q.lines:
+                        old_sig = re.sub(r"\s+", "", "".join(prev_lines))
+                        new_sig = re.sub(r"\s+", "", "".join(l.raw_text or l.latex for l in updated_q.lines))
+                        if new_sig and new_sig != old_sig:
+                            for nl in updated_q.lines:
+                                nl.source_file = sq.source_files[0]
+                            sq.lines = updated_q.lines
+                            sq.ocr_warnings.append("2-pass OCR đã soi lại ảnh gốc và hiệu chỉnh nét chữ")
+                            new_mv = verify_question_math(sq)
+                            mv_map[sq.question_id] = new_mv
+                            reasoning_agent.reset_last_usage()
+                            if is_fixed_rubric and q_res.question_id in rq_by_id:
+                                q_results[q_idx] = reasoning_agent.grade_question(
+                                    sq, rq_by_id[q_res.question_id], run_self_critique=True, use_llm=True, math_verification=new_mv
+                                )
+                            else:
+                                _, new_res = reasoning_agent.grade_auto_rubric(sq, math_verification=new_mv)
+                                new_res.question_id = q_res.question_id
+                                new_res.max_score = q_res.max_score
+                                new_res.total_points = q_res.total_points
+                                q_results[q_idx] = new_res
+                            rr_g = dict(getattr(reasoning_agent, "last_usage", {}))
+                            reread_grd_in += int(rr_g.get("input_tokens", 0) or 0)
+                            reread_grd_out += int(rr_g.get("output_tokens", 0) or 0)
+                            reread_grd_th += int(rr_g.get("thinking_tokens", 0) or 0)
+                            reread_grd_tot += int(rr_g.get("total_tokens", 0) or 0)
+                except Exception as rr_exc:
+                    print(f"[2-Pass Warning] Bỏ qua soi lại {q_res.question_id}: {rr_exc}")
 
         s_grade_ms = int(round((time.perf_counter() - t_g0) * 1000))
         t_grade_total += s_grade_ms

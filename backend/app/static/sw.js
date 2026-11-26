@@ -1,4 +1,4 @@
-const CACHE_NAME = 'edumark-pwa-v0.5.2';
+const CACHE_NAME = 'edumark-pwa-v0.6.0';
 const APP_SHELL = ['/app', '/static/manifest.json'];
 
 self.addEventListener('install', (event) => {

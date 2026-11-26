@@ -70,7 +70,7 @@
       <div>
         <div class="flex items-center gap-2">
           <h1 class="text-base font-bold text-white tracking-wide">EduMark AI</h1>
-          <span class="text-[10px] uppercase font-bold tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full">v0.5</span>
+          <span class="text-[10px] uppercase font-bold tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full">v0.6</span>
           <span id="badge-confidence" class="hidden text-xs px-2.5 py-0.5 rounded-full font-bold border">🟢 95%</span>
         </div>
         <p class="text-xs text-indigo-300 font-medium flex items-center gap-1.5" id="exam-title-header"><i class="fa-solid fa-wand-magic-sparkles text-indigo-400"></i><span>🎯 Tự động nhận diện Đề bài (Toán THCS)</span></p>
@@ -94,8 +94,8 @@
       <button onclick="openMobileQrModal()" title="Quét QR mở App Chụp Bài trực tiếp trên Điện thoại (HTTPS)" class="bg-emerald-600/80 hover:bg-emerald-500 text-white text-xs px-2.5 py-1.5 rounded-lg font-medium transition flex items-center gap-1 border border-emerald-500/50">
         <i class="fa-solid fa-qrcode"></i> <span class="hidden sm:inline">QR</span>
       </button>
-      <button onclick="openMobileQrModal()" title="Lấy mã QR mở Camera trên Điện thoại (HTTPS LAN)" class="bg-violet-900/70 hover:bg-violet-800 text-violet-200 text-xs px-2.5 py-1.5 rounded-lg font-semibold transition flex items-center gap-1 border border-violet-500/40">
-        <i class="fa-solid fa-qrcode"></i> <span class="hidden sm:inline">QR</span>
+      <button onclick="openGradebookModal()" title="Bảng điểm Excel: Tạo bảng mới hoặc Fill vào file có sẵn theo Hàng/Cột" class="bg-cyan-600 hover:bg-cyan-500 text-white text-xs px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1.5 shadow">
+        <i class="fa-solid fa-table"></i> <span class="hidden sm:inline">Bảng điểm</span>
       </button>
       <!-- API Key Status Pill -->
       <button onclick="openApiKeyModal()" id="btn-api-key" class="bg-slate-700/70 hover:bg-slate-700 text-xs px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1.5 border border-slate-600">
@@ -242,6 +242,9 @@
               <p id="class-batch-folder" class="text-[10px] font-mono text-emerald-300/90 mt-0.5 truncate max-w-[320px]"></p>
             </div>
             <div class="flex items-center gap-1.5 shrink-0">
+              <button onclick="openGradebookModal()" class="px-2.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-bold flex items-center gap-1 shadow">
+                <i class="fa-solid fa-table"></i> Fill Bảng điểm
+              </button>
               <a id="btn-download-class-excel" href="#" class="px-2.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold flex items-center gap-1 shadow">
                 <i class="fa-solid fa-file-excel"></i> Excel
               </a>
@@ -2208,6 +2211,237 @@
       }
     }
 
+    // =========================================================================
+    // GRADEBOOK (TẠO BẢNG MỚI / UPLOAD EXCEL CÓ SẴN & FILL HÀNG/CỘT)
+    // =========================================================================
+    let activeGradebook = null;
+    let lastFilledRowIndex = null;
+
+    async function safeJson(res) {
+      const txt = await res.text();
+      try {
+        return JSON.parse(txt);
+      } catch {
+        throw new Error(txt || `HTTP ${res.status}`);
+      }
+    }
+
+    async function openGradebookModal() {
+      document.getElementById('gradebook-modal').classList.remove('hidden');
+      await refreshGradebooksDropdown();
+    }
+    function closeGradebookModal() {
+      document.getElementById('gradebook-modal').classList.add('hidden');
+    }
+    function toggleGbSetupPanel(mode) {
+      document.getElementById('gb-panel-create').classList.toggle('hidden', mode !== 'create');
+      document.getElementById('gb-panel-upload').classList.toggle('hidden', mode !== 'upload');
+    }
+
+    async function refreshGradebooksDropdown(selectId = null) {
+      const res = await fetch('/api/v1/gradebooks');
+      const list = await safeJson(res);
+      const sel = document.getElementById('gb-select');
+      sel.innerHTML = '';
+      if (!list.length) {
+        sel.innerHTML = '<option value="">-- Chưa có bảng điểm nào (Hãy Tạo mới hoặc Upload .xlsx) --</option>';
+        document.getElementById('gb-controls-bar').classList.add('hidden');
+        document.getElementById('gb-download-link').classList.add('hidden');
+        return;
+      }
+      list.forEach((gb) => {
+        const opt = document.createElement('option');
+        opt.value = gb.gradebook_id;
+        opt.textContent = `📊 ${gb.name} (${gb.filled_count}/${gb.total_rows} dòng đã điền)`;
+        sel.appendChild(opt);
+      });
+      if (selectId && [...sel.options].some((o) => o.value === selectId)) sel.value = selectId;
+      await loadSelectedGradebook();
+    }
+
+    async function loadSelectedGradebook() {
+      const gbId = document.getElementById('gb-select').value;
+      if (!gbId) return;
+      const res = await fetch(`/api/v1/gradebooks/${gbId}`);
+      activeGradebook = await safeJson(res);
+      renderGradebookPreview(activeGradebook);
+    }
+
+    async function createNewGradebook() {
+      const name = document.getElementById('gb-new-name').value.trim() || 'Bảng điểm EduMark';
+      const colsRaw = document.getElementById('gb-new-cols').value.trim();
+      const stuRaw = document.getElementById('gb-new-students').value.trim();
+      const examId = (currentSubmission && currentSubmission.exam_id) || 'AUTO';
+      const payload = {
+        name,
+        exam_id: examId,
+        columns: colsRaw ? colsRaw.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        student_names: stuRaw ? stuRaw.split(/\r?\n/).map((s) => s.trim()).filter(Boolean) : [],
+      };
+      const res = await fetch('/api/v1/gradebooks/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await safeJson(res);
+      if (!res.ok) return alert(data.detail ? data.detail.message : 'Lỗi tạo bảng điểm');
+      toggleGbSetupPanel('none');
+      await refreshGradebooksDropdown(data.gradebook_id);
+    }
+
+    async function uploadExcelTemplate() {
+      const fInp = document.getElementById('gb-upload-file');
+      if (!fInp.files || !fInp.files.length) return alert('Vui lòng chọn file Excel (.xlsx)!');
+      const fd = new FormData();
+      fd.append('file', fInp.files[0]);
+      fd.append('new_score_col_name', document.getElementById('gb-upload-newcol').value.trim());
+      fd.append('exam_id', (currentSubmission && currentSubmission.exam_id) || 'AUTO');
+      const res = await fetch('/api/v1/gradebooks/upload-template', { method: 'POST', body: fd });
+      const data = await safeJson(res);
+      if (!res.ok) return alert((data.detail && data.detail.message) || 'Lỗi upload mẫu Excel');
+      toggleGbSetupPanel('none');
+      await refreshGradebooksDropdown(data.gradebook_id);
+    }
+
+    async function saveGbColumnMapping() {
+      if (!activeGradebook) return;
+      const scoreCol = parseInt(document.getElementById('gb-score-col').value || '0', 10);
+      const noteCol = parseInt(document.getElementById('gb-note-col').value || '0', 10);
+      const res = await fetch(`/api/v1/gradebooks/${activeGradebook.gradebook_id}/config`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ score_col: scoreCol || null, note_col: noteCol }),
+      });
+      activeGradebook = await safeJson(res);
+      renderGradebookPreview(activeGradebook);
+    }
+
+    async function addGradebookColumn() {
+      if (!activeGradebook) return;
+      const colName = document.getElementById('gb-add-col-name').value.trim();
+      if (!colName) return;
+      const res = await fetch(`/api/v1/gradebooks/${activeGradebook.gradebook_id}/config`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ add_column_name: colName }),
+      });
+      activeGradebook = await safeJson(res);
+      document.getElementById('gb-add-col-name').value = '';
+      renderGradebookPreview(activeGradebook);
+    }
+
+    async function fillCurrentSubmissionToGradebook(targetRow = null) {
+      if (!activeGradebook || !currentSubmission) return alert('Hãy mở 1 bài chấm và 1 bảng điểm!');
+      const scoreCol = parseInt(document.getElementById('gb-score-col').value || '0', 10);
+      const noteCol = parseInt(document.getElementById('gb-note-col').value || '0', 10);
+      const res = await fetch(`/api/v1/gradebooks/${activeGradebook.gradebook_id}/fill-submission`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          submission_id: currentSubmission.submission_id,
+          target_row: targetRow,
+          score_col: scoreCol || null,
+          note_col: noteCol,
+          auto_append: true,
+        }),
+      });
+      const data = await safeJson(res);
+      if (!res.ok) return alert((data.detail && data.detail.message) || 'Lỗi điền điểm');
+      lastFilledRowIndex = data.filled_row_index;
+      activeGradebook = data;
+      const msg = document.getElementById('gb-status-msg');
+      msg.textContent = `✅ Đã điền "${data.filled_student}" = ${data.filled_score}đ vào dòng #${data.filled_row_index} (${data.match_mode})`;
+      msg.classList.remove('hidden');
+      renderGradebookPreview(activeGradebook);
+    }
+
+    async function fillBatchToGradebook() {
+      if (!activeGradebook || !currentClassBatch) return;
+      const scoreCol = parseInt(document.getElementById('gb-score-col').value || '0', 10);
+      const noteCol = parseInt(document.getElementById('gb-note-col').value || '0', 10);
+      const res = await fetch(`/api/v1/gradebooks/${activeGradebook.gradebook_id}/fill-batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          batch_id: currentClassBatch.batch_id,
+          score_col: scoreCol || null,
+          note_col: noteCol,
+          auto_append: true,
+        }),
+      });
+      const data = await safeJson(res);
+      if (!res.ok) return alert((data.detail && data.detail.message) || 'Lỗi điền cả lớp');
+      activeGradebook = data;
+      const msg = document.getElementById('gb-status-msg');
+      msg.textContent = `✅ Đã điền trọn bộ ${(data.filled_batch || []).length} học sinh vào bảng điểm "${data.name}"!`;
+      msg.classList.remove('hidden');
+      renderGradebookPreview(activeGradebook);
+    }
+
+    function renderGradebookPreview(gb) {
+      if (!gb) return;
+      document.getElementById('gb-controls-bar').classList.remove('hidden');
+      const dl = document.getElementById('gb-download-link');
+      dl.href = gb.download_url;
+      dl.classList.remove('hidden');
+
+      const scSel = document.getElementById('gb-score-col');
+      const ntSel = document.getElementById('gb-note-col');
+      scSel.innerHTML = '';
+      ntSel.innerHTML = '<option value="0">(Không ghi)</option>';
+      (gb.columns || []).forEach((c) => {
+        const o1 = document.createElement('option');
+        o1.value = c.col_index;
+        o1.textContent = `${c.col_letter}: ${c.name}`;
+        scSel.appendChild(o1);
+
+        const o2 = document.createElement('option');
+        o2.value = c.col_index;
+        o2.textContent = `${c.col_letter}: ${c.name}`;
+        ntSel.appendChild(o2);
+      });
+      if (gb.score_col) scSel.value = String(gb.score_col);
+      ntSel.value = String(gb.note_col || 0);
+
+      document.getElementById('gb-btn-fill-batch').classList.toggle('hidden', !(currentClassBatch && currentClassBatch.students && currentClassBatch.students.length));
+      document.getElementById('gb-btn-fill-current').classList.toggle('hidden', !(currentSubmission && !currentSubmission.submission_id.startsWith('sub_demo')));
+
+      const box = document.getElementById('gb-table-container');
+      if (!gb.columns || !gb.columns.length) {
+        box.innerHTML = '<div class="text-center py-6 text-slate-400">Bảng chưa có cột nào.</div>';
+        return;
+      }
+      const canFillOne = Boolean(currentSubmission && !currentSubmission.submission_id.startsWith('sub_demo'));
+      let html = '<table class="w-full text-left border-collapse"><thead><tr class="bg-slate-800 text-slate-200">';
+      html += '<th class="p-2 border border-slate-700 font-mono text-[10px]">Dòng</th>';
+      gb.columns.forEach((c) => {
+        const isSc = c.col_index === gb.score_col;
+        html += `<th class="p-2 border border-slate-700 whitespace-nowrap ${isSc ? 'text-amber-300 bg-amber-950/30' : ''}">${c.name} <span class="text-[9px] text-slate-400">(${c.col_letter})</span></th>`;
+      });
+      if (canFillOne) html += '<th class="p-2 border border-slate-700 text-center">Điền vào dòng này</th>';
+      html += '</tr></thead><tbody>';
+
+      (gb.rows || []).forEach((r) => {
+        const isHi = lastFilledRowIndex === r.row_index;
+        html += `<tr class="${isHi ? 'bg-emerald-950/50' : 'hover:bg-slate-900/70'}">`;
+        html += `<td class="p-1.5 border border-slate-800 font-mono text-slate-500">#${r.row_index}</td>`;
+        gb.columns.forEach((c) => {
+          const v = r.cells[c.col_letter] || '';
+          const isSc = c.col_index === gb.score_col;
+          html += `<td class="p-1.5 border border-slate-800 ${isSc ? 'font-bold text-amber-300 font-mono' : 'text-slate-200'}">${v}</td>`;
+        });
+        if (canFillOne) {
+          html += `<td class="p-1.5 border border-slate-800 text-center"><button onclick="fillCurrentSubmissionToGradebook(${r.row_index})" class="px-2 py-0.5 rounded bg-cyan-700 hover:bg-cyan-600 text-white text-[10px] font-bold">✍️ Điền #${r.row_index}</button></td>`;
+        }
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+      if (!gb.rows || !gb.rows.length) {
+        html += '<div class="text-center py-4 text-slate-400">Bảng chưa có học sinh nào — bấm "Điền cả lớp" hoặc "Tự khớp & Điền" ở trên để tự thêm dòng!</div>';
+      }
+      box.innerHTML = html;
+    }
+
     // Init
     checkApiKeyStatus();
     loadExamsDropdown();
@@ -2236,6 +2470,73 @@
         <p class="text-[10px] text-amber-300/90 bg-amber-950/40 border border-amber-800/50 rounded-lg p-2">
           Lưu ý lần đầu mở link HTTPS nội bộ trên iPhone/Android: bấm <strong>Chi tiết / Nâng cao → Tiếp tục truy cập</strong> để cấp quyền Camera sau.
         </p>
+      </div>
+    </div>
+  </div>
+  <!-- Gradebook Modal (Bảng điểm Excel: Tạo mới / Upload template có sẵn & Fill theo Hàng/Cột) -->
+  <div id="gradebook-modal" class="hidden fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-4xl w-full p-6 shadow-2xl max-h-[90vh] flex flex-col space-y-3">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-table text-cyan-400"></i> Bảng Điểm Excel & Điền Hàng/Cột Tự Động
+        </h3>
+        <button onclick="closeGradebookModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <!-- Top Bar: Select existing gradebook or Create / Upload -->
+      <div class="flex flex-wrap items-center gap-2 bg-slate-900/80 p-2.5 rounded-xl border border-slate-700">
+        <select id="gb-select" onchange="loadSelectedGradebook()" class="flex-1 min-w-[200px] bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1.5 text-xs text-white"></select>
+        <button onclick="toggleGbSetupPanel('create')" class="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold">➕ Tạo bảng mới</button>
+        <button onclick="toggleGbSetupPanel('upload')" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold">📤 Upload Excel (.xlsx)</button>
+        <a id="gb-download-link" href="#" class="hidden px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold">⬇️ Tải .xlsx</a>
+      </div>
+
+      <!-- Create New Panel -->
+      <div id="gb-panel-create" class="hidden bg-slate-900 border border-cyan-700/60 rounded-xl p-3 space-y-2 text-xs">
+        <div class="grid grid-cols-2 gap-2">
+          <input id="gb-new-name" type="text" placeholder="Tên bảng điểm (VD: Bảng điểm Toán 7A)" class="bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1.5 text-white" />
+          <input id="gb-new-cols" type="text" placeholder="Cột tùy chọn (để trống dùng mặc định STT, Tên, Câu..., Tổng, Nhận xét)" class="bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1.5 text-white" />
+        </div>
+        <textarea id="gb-new-students" rows="3" placeholder="Danh sách tên học sinh có sẵn (mỗi em 1 dòng, để trống nếu muốn tự thêm dòng khi chấm)..." class="w-full bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1.5 text-white"></textarea>
+        <div class="flex justify-end gap-2">
+          <button onclick="toggleGbSetupPanel('none')" class="px-3 py-1 rounded bg-slate-700 text-slate-300">Đóng</button>
+          <button onclick="createNewGradebook()" class="px-3 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-bold">Tạo Bảng</button>
+        </div>
+      </div>
+
+      <!-- Upload Existing Excel Template Panel -->
+      <div id="gb-panel-upload" class="hidden bg-slate-900 border border-indigo-700/60 rounded-xl p-3 space-y-2 text-xs">
+        <div class="grid grid-cols-2 gap-2">
+          <input id="gb-upload-file" type="file" accept=".xlsx" class="text-slate-300 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:bg-indigo-600 file:text-white" />
+          <input id="gb-upload-newcol" type="text" placeholder="Tên cột điểm mới thêm (bỏ trống nếu bảng đã có cột Điểm)" class="bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1.5 text-white" />
+        </div>
+        <div class="flex justify-end gap-2">
+          <button onclick="toggleGbSetupPanel('none')" class="px-3 py-1 rounded bg-slate-700 text-slate-300">Đóng</button>
+          <button onclick="uploadExcelTemplate()" class="px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-bold">Nạp file Excel</button>
+        </div>
+      </div>
+
+      <!-- Column Mapping & Quick Fill CTA Bar -->
+      <div id="gb-controls-bar" class="hidden flex flex-wrap items-center justify-between gap-2 bg-slate-900/60 p-2.5 rounded-xl border border-slate-700 text-xs">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-slate-400">Cột Điểm:</span>
+          <select id="gb-score-col" onchange="saveGbColumnMapping()" class="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-amber-300 font-semibold"></select>
+          <span class="text-slate-400">Cột Nhận xét:</span>
+          <select id="gb-note-col" onchange="saveGbColumnMapping()" class="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sky-300"></select>
+          <input id="gb-add-col-name" type="text" placeholder="+ Thêm cột..." class="w-28 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-white" />
+          <button onclick="addGradebookColumn()" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white font-semibold">+ Cột</button>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="gb-btn-fill-batch" onclick="fillBatchToGradebook()" class="hidden px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold">✍️ Điền cả lớp vào Bảng</button>
+          <button id="gb-btn-fill-current" onclick="fillCurrentSubmissionToGradebook(null)" class="hidden px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold">✍️ Tự khớp & Điền bài đang mở</button>
+        </div>
+      </div>
+
+      <div id="gb-status-msg" class="hidden text-xs rounded-lg p-2 bg-emerald-950/50 border border-emerald-700/60 text-emerald-300"></div>
+
+      <!-- Live Table Preview -->
+      <div id="gb-table-container" class="flex-1 overflow-auto custom-scrollbar border border-slate-700 rounded-xl bg-slate-950/60 p-2 text-xs">
+        <div class="text-center text-slate-400 py-8">Hãy tạo bảng điểm mới hoặc upload file Excel (.xlsx) có sẵn của bạn ở trên!</div>
       </div>
     </div>
   </div>

@@ -1,5 +1,5 @@
 from backend.app.models.schemas import ExtractedLine, ExtractedQuestion, LineType, QuestionRubric
-from backend.app.services.agent2_grader import match_student_questions_to_rubric
+from backend.app.services.agent2_grader import match_student_questions_to_rubric, reasoning_agent
 from backend.app.services.math_verifier import verify_question_math
 
 
@@ -100,3 +100,26 @@ def test_sympy_geometry_angle_verification():
     )
     mv_wrong = verify_question_math(q_wrong)
     assert mv_wrong.invalid_transitions == 1
+
+
+def test_list_wrapped_gemini_grader_json_unwrapping():
+    """Gemini trả JSON bọc trong list 1 phần tử [{...}] không được gây AttributeError 500."""
+    wrapped_auto = [
+        {
+            "detected_exam_title": "Toán 7",
+            "total_points": 1.5,
+            "suggested_score": 1.5,
+            "confidence": 0.95,
+            "teacher_summary_comment": "Đúng hoàn toàn",
+            "criteria_evaluations": [
+                {"criterion_id": "C1", "name": "Giải đúng", "score": 1.5, "max_score": 1.5, "status": "passed", "feedback": "Tốt"}
+            ],
+        }
+    ]
+    title, auto_res = reasoning_agent._parse_auto_rubric_response(wrapped_auto, "Câu 2c")
+    assert title == "Toán 7"
+    assert auto_res.suggested_score == 1.5
+
+    rq = QuestionRubric(question_id="Câu 2c", question_text="Giải PT", max_score=1.5)
+    rub_res = reasoning_agent._parse_rubric_response(wrapped_auto, rq)
+    assert rub_res.suggested_score == 1.5

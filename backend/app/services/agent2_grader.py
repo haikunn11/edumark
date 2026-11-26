@@ -724,9 +724,18 @@ TRẢ VỀ JSON HỢP LỆ:
 
     def _parse_auto_rubric_response(
         self,
-        data: dict,
+        data: dict | list,
         primary_qid: str,
     ) -> tuple[str, QuestionGradingResult]:
+        if isinstance(data, list):
+            data = next((item for item in data if isinstance(item, dict)), {})
+        if not isinstance(data, dict):
+            data = {}
+        if "criteria_evaluations" not in data and isinstance(data.get("questions"), list) and data["questions"]:
+            first_q = data["questions"][0]
+            if isinstance(first_q, dict):
+                data = {**data, **first_q}
+
         evals: list[CriterionEvaluation] = []
         for idx, c_data in enumerate(data.get("criteria_evaluations", [])):
             max_c = max(0.0, float(c_data.get("max_score", c_data.get("score", 5.0))))
@@ -942,7 +951,16 @@ TRẢ VỀ JSON HỢP LỆ:
 }}
 """
 
-    def _parse_rubric_response(self, data: dict, rubric: QuestionRubric) -> QuestionGradingResult:
+    def _parse_rubric_response(self, data: dict | list, rubric: QuestionRubric) -> QuestionGradingResult:
+        if isinstance(data, list):
+            data = next((item for item in data if isinstance(item, dict)), {})
+        if not isinstance(data, dict):
+            data = {}
+        if "criteria_evaluations" not in data and isinstance(data.get("questions"), list) and data["questions"]:
+            first_q = data["questions"][0]
+            if isinstance(first_q, dict):
+                data = {**data, **first_q}
+
         evals: list[CriterionEvaluation] = []
         for c_data in data.get("criteria_evaluations", []):
             max_c = max(0.0, float(c_data.get("max_score", 0.5)))
