@@ -30,6 +30,7 @@
 | 2 | 2026-11-27T05:30 | Áp dụng ở: 2 hàm parse, 2-pass OCR clusterer, chấm lại 1 câu ở routes | Đủ mọi đường sinh `QuestionGradingResult` từ LLM |
 | 3 | 2026-11-27T05:30 | **CẤM** tự sửa bản ghi cũ trong SQLite | Đổi dữ liệu đã chấm cần chủ dự án quyết; thầy cô chấm lại bằng nút "Soi lại"/"Sửa chữ" hoặc chạy lại bài. Thanh chú ý v0.7.0 vẫn cảnh báo bản ghi cũ |
 | 4 | 2026-11-27T05:30 | Không đụng `_grade_with_rules` | Rule engine đã kẹp `total_awarded ≤ max` và tự đồng bộ tiêu chí khi bảo lưu điểm |
+| 5 | 2026-11-27T06:20 | ⏸ Chuẩn hoá điểm bài cũ: chủ dự án cho làm rồi **yêu cầu dừng** sau bước khảo sát — chưa ghi DB, chưa sửa `outputs/` | Khảo sát chỉ đọc: 40 bài, 19 câu lệch, 13 bài tổng vượt barem, 0 bài APPROVED, 0 bài thầy cô sửa tay; file đầu ra (`00_ket_qua.json`, `00_KET_QUA_CHAM.md`, `00_BANG_DIEM_CA_LOP.xlsx`, `00_TONG_HOP_PHAN_LOAI.md`) cũng mang điểm cũ. Làm tiếp: sao lưu → dry-run → `--apply` (chi tiết ở `brain4agent/roadmap.md`) |
 
 ### Vùng cấm
 - Không nâng (upscale) tiêu chí khi tổng tối đa tiêu chí < thang câu — chỉ quy đổi xuống; điểm câu khi đó vẫn = Σ tiêu chí ≤ max.
