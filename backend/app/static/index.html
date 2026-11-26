@@ -2184,11 +2184,13 @@
       try {
         const res = await fetch('/api/v1/system/mobile-access');
         const info = await res.json();
-        const httpsUrl = info.https_url || 'https://localhost:8443/app';
+        const httpsUrl = info.public_https_url || info.https_url || 'https://localhost:8443/app';
         const httpUrl = info.http_url || 'http://localhost:8000/app';
         document.getElementById('mob-qr-https').value = httpsUrl;
         document.getElementById('mob-qr-http').textContent = httpUrl;
-        document.getElementById('mob-qr-cert-badge').textContent = info.cert_ready
+        document.getElementById('mob-qr-cert-badge').textContent = info.tunnel_active
+          ? '🟢 Tailscale Public HTTPS Tunnel đã bật — vào thẳng bằng 4G/Wi-Fi bất kỳ (không cần cảnh báo SSL)!'
+          : info.cert_ready
           ? '🟢 HTTPS Camera LAN đã sẵn sàng (:8443)'
           : '🟡 Chưa khởi chạy cổng :8443 (chạy scripts/start_https_mobile.py)';
         document.getElementById('mob-qr-img').src = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(httpsUrl)}`;

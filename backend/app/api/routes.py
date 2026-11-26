@@ -192,8 +192,10 @@ def health_check() -> dict:
 
 @router.get("/system/mobile-access")
 def get_mobile_access_info() -> dict:
-    """Trả về đường dẫn LAN HTTPS & HTTP để mở Mobile App /app chụp trực tiếp bằng Camera điện thoại."""
+    """Trả về đường dẫn LAN HTTPS, Public Tunnel HTTPS (Tailscale Funnel) & HTTP để mở Mobile App /app."""
+    import re as _re
     import socket
+    import subprocess
 
     lan_ip = "127.0.0.1"
     try:
@@ -211,12 +213,29 @@ def get_mobile_access_info() -> dict:
         except Exception:
             pass
 
+    public_https_url = ""
+    try:
+        proc = subprocess.run(
+            ["tailscale", "funnel", "status"],
+            capture_output=True,
+            text=True,
+            timeout=1.5,
+        )
+        if proc.returncode == 0 and proc.stdout:
+            m_ts = _re.search(r"(https://[a-zA-Z0-9.-]+\.ts\.net)", proc.stdout)
+            if m_ts and "8000" in proc.stdout:
+                public_https_url = m_ts.group(1).rstrip("/") + "/app"
+    except Exception:
+        pass
+
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     cert_ready = os.path.isfile(os.path.join(project_root, "certs", "edumark.crt"))
     return {
         "lan_ip": lan_ip,
         "http_url": f"http://{lan_ip}:8000/app",
         "https_url": f"https://{lan_ip}:8443/app",
+        "public_https_url": public_https_url,
+        "tunnel_active": bool(public_https_url),
         "cert_ready": cert_ready,
     }
 
