@@ -103,6 +103,70 @@ def match_student_questions_to_rubric(
                 lines=merged_lines,
             )
 
+    # Tầng 4: Khớp ngược từ 1 câu cha của học sinh (vd OCR gom chung "Câu 4") sang các ý con chưa khớp trong Rubric ("Câu 4a", "Câu 4b", "Câu 4c")
+    sub_header_re = re.compile(r"^\s*(?:ý\s*|câu\s*\d+\s*|bài\s*\d+\s*)?([a-z])\s*[).:\-]", re.IGNORECASE)
+    for idx, s_lbl, sq in student_canon:
+        if idx in used_student_indices:
+            continue
+        m_p = re.search(r"(?:câu|bài|q)?\s*(\d+)$", s_lbl, re.IGNORECASE)
+        if not m_p:
+            continue
+        p_num = m_p.group(1)
+        child_rubrics: list[tuple[str, QuestionRubric]] = []
+        for rq in rubric_qs:
+            if rq.question_id in matched:
+                continue
+            m_c = re.search(rf"(?:câu|bài|q)?\s*{re.escape(p_num)}\s*([a-z])$", rq.question_id.strip(), re.IGNORECASE)
+            if m_c:
+                child_rubrics.append((m_c.group(1).lower(), rq))
+        if not child_rubrics:
+            continue
+
+        # Chia các dòng trong câu cha theo tiêu đề từng ý con (a), b), c)...) nếu có
+        buckets: dict[str, list] = {}
+        leading_lines: list = []
+        active_sub: str | None = None
+        for ln in sq.lines:
+            txt_head = (ln.raw_text or ln.latex or "").strip()
+            m_sh = sub_header_re.match(txt_head)
+            if m_sh and any(sl == m_sh.group(1).lower() for sl, _ in child_rubrics):
+                active_sub = m_sh.group(1).lower()
+            if active_sub is None:
+                leading_lines.append(ln)
+            else:
+                buckets.setdefault(active_sub, []).append(ln)
+
+        if buckets:
+            first_sub = next(iter(buckets))
+            if leading_lines:
+                buckets[first_sub] = leading_lines + buckets[first_sub]
+            for sub_letter, rq in child_rubrics:
+                sub_lines = buckets.get(sub_letter, [])
+                if not sub_lines:
+                    continue
+                renum = []
+                for li, l in enumerate(sub_lines):
+                    nl = l.model_copy(deep=True)
+                    nl.line_index = li
+                    nl.line_no = li + 1
+                    renum.append(nl)
+                matched[rq.question_id] = ExtractedQuestion(
+                    question_id=rq.question_id,
+                    question_text=rq.question_text,
+                    source_files=list(sq.source_files),
+                    lines=renum,
+                )
+        else:
+            # Không tách rõ đầu mục con trong dòng -> truyền toàn bộ bài làm câu cha vào từng ý con của Rubric
+            for _, rq in child_rubrics:
+                matched[rq.question_id] = ExtractedQuestion(
+                    question_id=rq.question_id,
+                    question_text=rq.question_text,
+                    source_files=list(sq.source_files),
+                    lines=[l.model_copy(deep=True) for l in sq.lines],
+                )
+        used_student_indices.add(idx)
+
     return matched
 
 
