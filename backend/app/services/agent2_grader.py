@@ -231,6 +231,57 @@ def _extract_json_dict(text: str) -> dict | list:
             raise ValueError("Không tìm thấy cấu trúc JSON hợp lệ từ phản hồi chấm bài.")
 
 
+_SCORE_EPS = 0.01
+
+
+def _unique_evals(res: QuestionGradingResult) -> list[CriterionEvaluation]:
+    """Lấy `criteria_evaluations` làm nguồn DUY NHẤT và cho `criteria_evaluation` trỏ cùng list.
+
+    Khi tạo mới, 2 trường cùng trỏ 1 list; nhưng bản ghi đọc lại từ SQLite/JSON có 2 list RIÊNG cùng nội dung —
+    gộp cả hai sẽ đếm trùng tiêu chí (đo 2026-11-27: hs27 Câu 1d ra 0.74 thay vì 0.75)."""
+    evals = res.criteria_evaluations or res.criteria_evaluation or []
+    res.criteria_evaluations = evals
+    res.criteria_evaluation = evals
+    return list(evals)
+
+
+def fit_result_to_max(res: QuestionGradingResult, new_max: float | None = None) -> QuestionGradingResult:
+    """Đưa kết quả 1 câu về ĐÚNG thang điểm (v0.7.1 — planning/04_2026-11-27_grader-score-clamp).
+
+    1. Nếu tiêu chí được chấm theo thang lớn hơn điểm tối đa của câu (vd LLM chấm lại theo thang 10 cho câu 1đ)
+       ⇒ quy đổi TỈ LỆ từng tiêu chí (điểm đạt & điểm tối đa) về thang của câu.
+    2. Điểm câu = Σ điểm tiêu chí (phần thầy cô kiểm được), KHÔNG dùng `suggested_score` tự khai của LLM.
+    3. Kẹp điểm câu trong [0, điểm tối đa].
+    Không có tiêu chí ⇒ quy đổi theo tỉ lệ thang cũ/thang mới rồi kẹp.
+    """
+    old_total = float(res.total_points or res.max_score or 0.0)
+    target = float(new_max if new_max is not None else old_total)
+    evals = _unique_evals(res)
+
+    if evals and target > 0:
+        crit_max = sum(float(e.max_points or e.max_score or 0.0) for e in evals)
+        scale_from = crit_max if crit_max > 0 else old_total
+        if scale_from > target + _SCORE_EPS:
+            k = target / scale_from
+            for e in evals:
+                m = round(float(e.max_points or e.max_score or 0.0) * k, 2)
+                s = round(min(m, float(e.earned_points or e.score or 0.0) * k), 2)
+                e.max_score = e.max_points = m
+                e.score = e.earned_points = s
+        earned = sum(float(e.earned_points or e.score or 0.0) for e in evals)
+    else:
+        earned = float(res.suggested_score or res.earned_points or 0.0)
+        if target > 0 and old_total > target + _SCORE_EPS:
+            earned *= target / old_total
+
+    if target > 0:
+        res.max_score = res.total_points = round(target, 2)
+        earned = min(earned, target)
+    earned = round(max(0.0, earned), 2)
+    res.suggested_score = res.earned_points = earned
+    return res
+
+
 class ReasoningGradingAgent:
     """Agent 2: Chấm điểm theo Barem từng bước + Kiểm chứng SymPy + Error Propagation."""
 
@@ -778,7 +829,8 @@ TRẢ VỀ JSON HỢP LỆ:
             confidence_level=conf_lvl,
             teacher_summary_comment=str(data.get("teacher_summary_comment", "Đã chấm xong bài làm.")),
         )
-        return exam_title, q_res
+        # v0.7.1: điểm câu = Σ tiêu chí (không tin suggested_score tự khai), quy đổi nếu tiêu chí vượt thang câu
+        return exam_title, fit_result_to_max(q_res, total_max)
 
     def _call_openai_auto_reasoning_grader(
         self,
@@ -983,7 +1035,7 @@ TRẢ VỀ JSON HỢP LỆ:
         conf = max(0.0, min(1.0, float(data.get("confidence", 0.9))))
         conf_lvl = "green" if conf >= 0.90 else ("yellow" if conf >= 0.70 else "red")
 
-        return QuestionGradingResult(
+        q_res = QuestionGradingResult(
             question_id=rubric.question_id,
             suggested_score=round(total_pts, 2),
             earned_points=round(total_pts, 2),
@@ -1000,6 +1052,8 @@ TRẢ VỀ JSON HỢP LỆ:
             confidence_level=conf_lvl,
             teacher_summary_comment=str(data.get("teacher_summary_comment", "Đã chấm xong bài làm.")),
         )
+        # v0.7.1: điểm câu = Σ tiêu chí, kẹp theo điểm tối đa của barem
+        return fit_result_to_max(q_res, max_total)
 
     def _call_openai_reasoning_grader(
         self,

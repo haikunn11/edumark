@@ -1,4 +1,4 @@
-# EduMark AI — Hệ Thống Chấm Bài Tự Luận Viết Tay Thông Minh (`v0.7.0`)
+# EduMark AI — Hệ Thống Chấm Bài Tự Luận Viết Tay Thông Minh (`v0.7.1`)
 
 > **🎯 Mục tiêu cuối cùng (North Star):** Mở **App** → **Chụp bài làm viết tay của học sinh** → **Nhìn trọn vẹn 100% dữ liệu chữ viết tay** → **Chấm bài chuẩn xác**.
 

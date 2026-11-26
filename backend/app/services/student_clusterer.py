@@ -29,7 +29,7 @@ from backend.app.models.schemas import (
     SubmissionStatus,
 )
 from backend.app.services.agent1_ocr import vision_agent
-from backend.app.services.agent2_grader import reasoning_agent
+from backend.app.services.agent2_grader import fit_result_to_max, reasoning_agent
 from backend.app.services.batch import export_to_excel
 from backend.app.services.folder_reassembler import (
     _slugify_vi,
@@ -446,9 +446,9 @@ def grade_smart_folder_multistudent(
                             else:
                                 _, new_res = reasoning_agent.grade_auto_rubric(sq, math_verification=new_mv)
                                 new_res.question_id = q_res.question_id
-                                new_res.max_score = q_res.max_score
-                                new_res.total_points = q_res.total_points
-                                q_results[q_idx] = new_res
+                                # v0.7.1: chấm lại đơn câu dùng thang 10 ⇒ QUY ĐỔI về thang gốc của câu, không chỉ gán đè max
+                                # (gán đè từng sinh ra 10/1đ, 7.5/3đ — planning/04_2026-11-27_grader-score-clamp)
+                                q_results[q_idx] = fit_result_to_max(new_res, q_res.total_points or q_res.max_score or None)
                             rr_g = dict(getattr(reasoning_agent, "last_usage", {}))
                             reread_grd_in += int(rr_g.get("input_tokens", 0) or 0)
                             reread_grd_out += int(rr_g.get("output_tokens", 0) or 0)

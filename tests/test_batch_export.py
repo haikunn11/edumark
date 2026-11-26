@@ -159,6 +159,15 @@ def test_api_batch_upload_and_status():
 
 def test_api_export_excel_endpoint():
     """WP-16: Kiểm thử tải file Excel qua API endpoint /exports/excel/{exam_id}."""
+    # Tự tạo bài nộp (v0.7.1): trước đây test dựa vào test batch chạy trước cùng tiến trình ⇒ chạy đơn lẻ
+    # hoặc bị pytest-xdist chia sang worker khác thì endpoint trả 400 "chưa có bài nộp".
+    seed = client.post(
+        "/api/v1/submissions/batch",
+        files={"file": ("batch_exam.zip", create_sample_zip_bytes(num_images=1), "application/zip")},
+        data={"exam_id": "TOAN9_01"},
+    )
+    assert seed.status_code == 200
+
     res = client.get("/api/v1/exports/excel/TOAN9_01?format_type=standard")
     assert res.status_code == 200
     assert "application/vnd.openxmlformats" in res.headers["content-type"]

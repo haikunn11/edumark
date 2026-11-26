@@ -22,7 +22,7 @@ from backend.app.models.schemas import (
     TeacherReviewRequest,
 )
 from backend.app.services.agent1_ocr import OCRApiError, OCRLowConfidenceError, vision_agent
-from backend.app.services.agent2_grader import match_student_questions_to_rubric, reasoning_agent
+from backend.app.services.agent2_grader import fit_result_to_max, match_student_questions_to_rubric, reasoning_agent
 from backend.app.services.batch import export_to_excel
 from backend.app.services.folder_reassembler import (
     ALLOWED_IMAGE_EXTS,
@@ -958,12 +958,9 @@ def regrade_submission_question(submission_id: str, req: RegradeQuestionRequest)
         _, new_qr = reasoning_agent.grade_auto_rubric(target_q, math_verification=q_mv)
         new_qr.question_id = req.question_id
         if old_qr:
+            # v0.7.1: quy đổi CẢ tiêu chí lẫn điểm câu về thang gốc (trước đây chỉ quy đổi điểm câu ⇒ tiêu chí lệch)
             old_max = old_qr.total_points or old_qr.max_score or new_qr.max_score
-            new_qr.max_score = old_max
-            new_qr.total_points = old_max
-            if old_max != 10.0 and new_qr.suggested_score > old_max:
-                new_qr.suggested_score = round(min(old_max, (new_qr.suggested_score / 10.0) * old_max), 2)
-                new_qr.earned_points = new_qr.suggested_score
+            new_qr = fit_result_to_max(new_qr, old_max)
 
     if existing_idx is not None:
         record.question_results[existing_idx] = new_qr
