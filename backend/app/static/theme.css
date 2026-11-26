@@ -1,0 +1,148 @@
+/* EduMark v0.7.0 — Design system "Floating Cards"
+   SPEC: planning/03_2026-11-27_ui-floating-cards/specs/SPEC-P01-theme-layer.md
+   Sáng = mặc định (:root). Tối = html.dark (bảng màu Tailwind gốc, như v0.6). */
+
+/* @palette:start — sinh bởi scripts/gen_theme_palette.py, CẤM sửa tay */
+:root {
+  --tw-slate-50: 29 33 41; --tw-slate-100: 38 42 51; --tw-slate-200: 58 66 80; --tw-slate-300: 91 101 117; --tw-slate-400: 110 122 138; --tw-slate-500: 148 160 176; --tw-slate-600: 203 213 225; --tw-slate-700: 227 233 240; --tw-slate-800: 244 247 250; --tw-slate-900: 255 255 255; --tw-slate-950: 220 228 236;
+  --tw-indigo-50: 23 58 86; --tw-indigo-100: 26 65 96; --tw-indigo-200: 28 72 105; --tw-indigo-300: 32 81 118; --tw-indigo-400: 38 98 143; --tw-indigo-500: 51 130 191; --tw-indigo-600: 51 130 191; --tw-indigo-700: 43 110 162; --tw-indigo-800: 198 220 237; --tw-indigo-900: 226 238 246; --tw-indigo-950: 239 245 250;
+  --tw-sky-50: 32 68 94; --tw-sky-100: 36 76 104; --tw-sky-200: 39 84 114; --tw-sky-300: 44 94 129; --tw-sky-400: 53 114 156; --tw-sky-500: 71 152 208; --tw-sky-600: 63 141 198; --tw-sky-700: 60 129 177; --tw-sky-800: 203 226 242; --tw-sky-900: 229 241 248; --tw-sky-950: 240 247 251;
+  --tw-cyan-50: 38 87 97; --tw-cyan-100: 42 97 108; --tw-cyan-200: 46 107 119; --tw-cyan-300: 52 120 134; --tw-cyan-400: 63 146 162; --tw-cyan-500: 84 194 216; --tw-cyan-600: 44 157 181; --tw-cyan-700: 71 165 184; --tw-cyan-800: 207 238 244; --tw-cyan-900: 231 246 250; --tw-cyan-950: 241 250 252;
+  --tw-teal-50: 64 48 97; --tw-teal-100: 71 54 108; --tw-teal-200: 78 59 119; --tw-teal-300: 88 66 134; --tw-teal-400: 106 80 162; --tw-teal-500: 142 107 216; --tw-teal-600: 123 87 203; --tw-teal-700: 121 91 184; --tw-teal-800: 223 214 244; --tw-teal-900: 239 234 250; --tw-teal-950: 246 243 252;
+  --tw-emerald-50: 50 79 30; --tw-emerald-100: 56 88 34; --tw-emerald-200: 61 97 37; --tw-emerald-300: 69 109 42; --tw-emerald-400: 83 132 50; --tw-emerald-500: 111 176 67; --tw-emerald-600: 92 155 51; --tw-emerald-700: 94 150 57; --tw-emerald-800: 215 233 202; --tw-emerald-900: 235 244 229; --tw-emerald-950: 243 249 240;
+  --tw-amber-50: 111 79 21; --tw-amber-100: 123 88 24; --tw-amber-200: 135 96 26; --tw-amber-300: 153 108 29; --tw-amber-400: 184 131 35; --tw-amber-500: 246 175 47; --tw-amber-600: 201 130 16; --tw-amber-700: 209 149 40; --tw-amber-800: 252 233 197; --tw-amber-900: 254 244 226; --tw-amber-950: 254 249 238;
+  --tw-rose-50: 93 18 46; --tw-rose-100: 104 20 52; --tw-rose-200: 114 23 57; --tw-rose-300: 128 25 64; --tw-rose-400: 155 31 77; --tw-rose-500: 207 41 103; --tw-rose-600: 192 32 96; --tw-rose-700: 176 35 88; --tw-rose-800: 242 195 212; --tw-rose-900: 248 225 234; --tw-rose-950: 251 238 243;
+  --tw-violet-50: 64 48 97; --tw-violet-100: 71 54 108; --tw-violet-200: 78 59 119; --tw-violet-300: 88 66 134; --tw-violet-400: 106 80 162; --tw-violet-500: 142 107 216; --tw-violet-600: 123 87 203; --tw-violet-700: 121 91 184; --tw-violet-800: 223 214 244; --tw-violet-900: 239 234 250; --tw-violet-950: 246 243 252;
+  --tw-purple-50: 64 48 97; --tw-purple-100: 71 54 108; --tw-purple-200: 78 59 119; --tw-purple-300: 88 66 134; --tw-purple-400: 106 80 162; --tw-purple-500: 142 107 216; --tw-purple-600: 123 87 203; --tw-purple-700: 121 91 184; --tw-purple-800: 223 214 244; --tw-purple-900: 239 234 250; --tw-purple-950: 246 243 252;
+}
+html.dark {
+  --tw-slate-50: 248 250 252; --tw-slate-100: 241 245 249; --tw-slate-200: 226 232 240; --tw-slate-300: 203 213 225; --tw-slate-400: 148 163 184; --tw-slate-500: 100 116 139; --tw-slate-600: 71 85 105; --tw-slate-700: 51 65 85; --tw-slate-800: 30 41 59; --tw-slate-900: 15 23 42; --tw-slate-950: 2 6 23;
+  --tw-indigo-50: 238 242 255; --tw-indigo-100: 224 231 255; --tw-indigo-200: 199 210 254; --tw-indigo-300: 165 180 252; --tw-indigo-400: 129 140 248; --tw-indigo-500: 99 102 241; --tw-indigo-600: 79 70 229; --tw-indigo-700: 67 56 202; --tw-indigo-800: 55 48 163; --tw-indigo-900: 49 46 129; --tw-indigo-950: 30 27 75;
+  --tw-sky-50: 240 249 255; --tw-sky-100: 224 242 254; --tw-sky-200: 186 230 253; --tw-sky-300: 125 211 252; --tw-sky-400: 56 189 248; --tw-sky-500: 14 165 233; --tw-sky-600: 2 132 199; --tw-sky-700: 3 105 161; --tw-sky-800: 7 89 133; --tw-sky-900: 12 74 110; --tw-sky-950: 8 47 73;
+  --tw-cyan-50: 236 254 255; --tw-cyan-100: 207 250 254; --tw-cyan-200: 165 243 252; --tw-cyan-300: 103 232 249; --tw-cyan-400: 34 211 238; --tw-cyan-500: 6 182 212; --tw-cyan-600: 8 145 178; --tw-cyan-700: 14 116 144; --tw-cyan-800: 21 94 117; --tw-cyan-900: 22 78 99; --tw-cyan-950: 8 51 68;
+  --tw-teal-50: 240 253 250; --tw-teal-100: 204 251 241; --tw-teal-200: 153 246 228; --tw-teal-300: 94 234 212; --tw-teal-400: 45 212 191; --tw-teal-500: 20 184 166; --tw-teal-600: 13 148 136; --tw-teal-700: 15 118 110; --tw-teal-800: 17 94 89; --tw-teal-900: 19 78 74; --tw-teal-950: 4 47 46;
+  --tw-emerald-50: 236 253 245; --tw-emerald-100: 209 250 229; --tw-emerald-200: 167 243 208; --tw-emerald-300: 110 231 183; --tw-emerald-400: 52 211 153; --tw-emerald-500: 16 185 129; --tw-emerald-600: 5 150 105; --tw-emerald-700: 4 120 87; --tw-emerald-800: 6 95 70; --tw-emerald-900: 6 78 59; --tw-emerald-950: 2 44 34;
+  --tw-amber-50: 255 251 235; --tw-amber-100: 254 243 199; --tw-amber-200: 253 230 138; --tw-amber-300: 252 211 77; --tw-amber-400: 251 191 36; --tw-amber-500: 245 158 11; --tw-amber-600: 217 119 6; --tw-amber-700: 180 83 9; --tw-amber-800: 146 64 14; --tw-amber-900: 120 53 15; --tw-amber-950: 69 26 3;
+  --tw-rose-50: 255 241 242; --tw-rose-100: 255 228 230; --tw-rose-200: 254 205 211; --tw-rose-300: 253 164 175; --tw-rose-400: 251 113 133; --tw-rose-500: 244 63 94; --tw-rose-600: 225 29 72; --tw-rose-700: 190 18 60; --tw-rose-800: 159 18 57; --tw-rose-900: 136 19 55; --tw-rose-950: 76 5 25;
+  --tw-violet-50: 245 243 255; --tw-violet-100: 237 233 254; --tw-violet-200: 221 214 254; --tw-violet-300: 196 181 253; --tw-violet-400: 167 139 250; --tw-violet-500: 139 92 246; --tw-violet-600: 124 58 237; --tw-violet-700: 109 40 217; --tw-violet-800: 91 33 182; --tw-violet-900: 76 29 149; --tw-violet-950: 46 16 101;
+  --tw-purple-50: 250 245 255; --tw-purple-100: 243 232 255; --tw-purple-200: 233 213 255; --tw-purple-300: 216 180 254; --tw-purple-400: 192 132 252; --tw-purple-500: 168 85 247; --tw-purple-600: 147 51 234; --tw-purple-700: 126 34 206; --tw-purple-800: 107 33 168; --tw-purple-900: 88 28 135; --tw-purple-950: 59 7 100;
+}
+/* @palette:end */
+
+:root {
+  --em-bg: rgb(var(--tw-slate-950));
+  --em-surface: rgb(var(--tw-slate-900));
+  --em-soft: rgb(var(--tw-slate-800));
+  --em-line: rgb(var(--tw-slate-700));
+  --em-ink: rgb(var(--tw-slate-100));
+  --em-ink-2: rgb(var(--tw-slate-300));
+  --em-ink-3: rgb(var(--tw-slate-500));
+  --em-blue: rgb(var(--tw-indigo-600));
+  --em-blue-2: rgb(var(--tw-sky-500));
+  --em-green: rgb(var(--tw-emerald-500));
+  --em-green-btn: rgb(var(--tw-emerald-600));
+  --em-orange: #F6AF2F;
+  --em-orange-ink: #3A2600;
+  --em-magenta: #CF2967;
+  --em-cyan: rgb(var(--tw-cyan-500));
+  --em-purple: rgb(var(--tw-violet-500));
+  --em-r-card: 18px;
+  --em-r-ctl: 12px;
+  --em-shadow-card: 0 18px 40px -18px rgba(38, 42, 51, .22), 0 2px 6px rgba(38, 42, 51, .05);
+  --em-shadow-lift: 0 26px 50px -16px rgba(38, 42, 51, .30), 0 4px 10px rgba(38, 42, 51, .06);
+  --em-shadow-orange: 0 16px 30px -12px rgba(246, 175, 47, .65);
+  --em-shadow-magenta: 0 16px 30px -12px rgba(207, 41, 103, .55);
+  color-scheme: light;
+}
+html.dark {
+  --em-shadow-card: 0 18px 40px -18px rgba(0, 0, 0, .6), 0 0 0 1px rgba(148, 163, 184, .08);
+  --em-shadow-lift: 0 26px 50px -16px rgba(0, 0, 0, .7), 0 0 0 1px rgba(148, 163, 184, .12);
+  color-scheme: dark;
+}
+
+body { background: var(--em-bg); color: var(--em-ink); -webkit-font-smoothing: antialiased; }
+
+/* ---------- Logo ---------- */
+.em-logo { display: inline-flex; align-items: flex-start; font-weight: 800; letter-spacing: -.04em; color: var(--em-ink); line-height: 1; white-space: nowrap; }
+.em-logo .em-sparks { display: inline-block; margin-left: 2px; transform: translateY(-4px); }
+
+/* ---------- Card ---------- */
+.em-card { background: var(--em-surface); border-radius: var(--em-r-card); box-shadow: var(--em-shadow-card); }
+.em-card-soft { background: var(--em-soft); border-radius: 14px; }
+.em-lift { transition: transform .15s ease, box-shadow .15s ease; }
+.em-lift:hover { transform: translateY(-4px) scale(1.015); box-shadow: var(--em-shadow-lift), inset 0 0 0 2px var(--em-blue); }
+
+/* ---------- Buttons ---------- */
+.em-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: var(--em-r-ctl);
+  font-weight: 600; font-size: 14px; border: 0; cursor: pointer; white-space: nowrap; transition: filter .12s ease, transform .12s ease; }
+.em-btn:hover { filter: brightness(1.06); }
+.em-btn:active { transform: scale(.98); }
+.em-btn:disabled { opacity: .5; cursor: not-allowed; }
+.em-btn-primary { background: var(--em-blue); color: #fff; box-shadow: 0 10px 20px -10px rgba(51, 130, 191, .8); }
+.em-btn-success { background: var(--em-green-btn); color: #fff; box-shadow: 0 10px 20px -10px rgba(111, 176, 67, .9); }
+.em-btn-ghost { background: var(--em-soft); color: var(--em-ink); }
+.em-btn-outline { background: var(--em-surface); color: var(--em-ink); box-shadow: inset 0 0 0 1.5px var(--em-line); }
+.em-btn-sm { height: 34px; padding: 0 11px; font-size: 12px; border-radius: 10px; }
+.em-iconbtn { width: 40px; height: 40px; border-radius: 12px; display: inline-grid; place-items: center; color: var(--em-ink-2); background: var(--em-soft); border: 0; cursor: pointer; transition: background .12s ease, color .12s ease; }
+.em-iconbtn:hover { color: var(--em-blue); background: rgb(var(--tw-slate-700)); }
+.em-kbd { font: 700 11px 'JetBrains Mono', ui-monospace, monospace; padding: 2px 6px; border-radius: 6px; background: rgba(255, 255, 255, .25); }
+.em-btn-outline .em-kbd, .em-btn-ghost .em-kbd { background: var(--em-soft); color: var(--em-ink-2); }
+
+/* ---------- Chips ---------- */
+.em-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 999px; font-weight: 600; font-size: 12px; white-space: nowrap; }
+.em-chip-soft { background: var(--em-soft); color: var(--em-ink-2); }
+.em-chip-blue { background: rgb(var(--tw-sky-500)); color: #fff; }
+.em-chip-green { background: rgb(var(--tw-emerald-500) / .16); color: rgb(var(--tw-emerald-300)); }
+.em-chip-orange { background: rgb(var(--tw-amber-500) / .18); color: rgb(var(--tw-amber-300)); }
+.em-chip-magenta { background: rgb(var(--tw-rose-500) / .14); color: rgb(var(--tw-rose-300)); }
+.em-chip-cyan { background: rgb(var(--tw-cyan-500) / .16); color: rgb(var(--tw-cyan-300)); }
+.em-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+
+/* ---------- Icon tròn & avatar ---------- */
+.em-ico { width: 40px; height: 40px; border-radius: 50%; display: inline-grid; place-items: center; color: #fff; font-size: 16px; flex: none; }
+.em-ico.sm { width: 30px; height: 30px; font-size: 13px; }
+.em-ico.lg { width: 52px; height: 52px; font-size: 20px; }
+.em-i-blue { background: rgb(var(--tw-sky-500)); } .em-i-green { background: var(--em-green); } .em-i-orange { background: var(--em-orange); }
+.em-i-magenta { background: var(--em-magenta); } .em-i-cyan { background: var(--em-cyan); } .em-i-purple { background: var(--em-purple); }
+.em-avatar { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px;
+  color: var(--em-ink); background: var(--em-soft); box-shadow: 0 0 0 4px var(--ring, var(--em-green)); flex: none; }
+
+/* ---------- Thanh highlight (chỗ cần quyết) ---------- */
+.em-highlight { display: flex; align-items: center; gap: 12px; background: var(--em-orange); color: var(--em-orange-ink); border-radius: 14px;
+  padding: 11px 14px; box-shadow: var(--em-shadow-orange); font-weight: 600; font-size: 14px; }
+.em-highlight small { display: block; font-weight: 500; font-size: 12px; opacity: .82; }
+.em-highlight.is-error { background: var(--em-magenta); color: #fff; box-shadow: var(--em-shadow-magenta); }
+.em-highlight .em-ico { background: #fff; color: #B37500; }
+.em-highlight.is-error .em-ico { color: var(--em-magenta); }
+.em-tilt { transform: rotate(-1.2deg); }
+
+/* ---------- Segmented ---------- */
+.em-seg { display: flex; gap: 4px; padding: 4px; background: var(--em-soft); border-radius: 14px; }
+.em-seg > button { flex: 1; height: 36px; border: 0; border-radius: 10px; background: transparent; font-weight: 600; font-size: 13px; color: var(--em-ink-2);
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer; transition: background .12s ease, color .12s ease; }
+.em-seg > button:hover { color: var(--em-ink); }
+.em-seg > button.is-on { background: var(--em-surface); color: var(--em-blue); box-shadow: 0 6px 14px -8px rgba(38, 42, 51, .35); }
+
+/* ---------- Họa tiết (chỉ trên nền, không đè ảnh bài làm) ---------- */
+.em-dots { position: absolute; width: 88px; height: 48px; background-image: radial-gradient(var(--c, var(--em-magenta)) 1.6px, transparent 1.8px);
+  background-size: 11px 11px; opacity: .5; pointer-events: none; }
+.em-ribbon { position: absolute; pointer-events: none; }
+.em-skeleton { height: 9px; border-radius: 6px; background: var(--em-soft); }
+html.dark .em-ribbon, html.dark .em-dots { opacity: .35; }
+
+.em-eyebrow { font-weight: 700; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--em-ink-3); }
+.em-num { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+/* ---------- Scrollbar ---------- */
+.custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgb(var(--tw-slate-600)); border-radius: 4px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgb(var(--tw-slate-500)); }
+
+/* ---------- Menu thả xuống ---------- */
+.em-menu { position: absolute; right: 0; top: calc(100% + 8px); min-width: 250px; padding: 6px; background: var(--em-surface); border-radius: 14px;
+  box-shadow: var(--em-shadow-lift); z-index: 60; }
+.em-menu button, .em-menu a { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 10px; border-radius: 10px; border: 0; background: transparent;
+  color: var(--em-ink); font-weight: 600; font-size: 13px; text-align: left; cursor: pointer; text-decoration: none; }
+.em-menu button:hover, .em-menu a:hover { background: var(--em-soft); }
+.em-menu small { display: block; font-weight: 500; font-size: 11px; color: var(--em-ink-3); }

@@ -1,14 +1,20 @@
 <!DOCTYPE html>
-<html lang="vi" class="dark">
+<html lang="vi">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta name="theme-color" content="#4f46e5" />
+  <meta name="theme-color" content="#DCE4EC" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="manifest" href="/static/manifest.json" />
   <title>EduMark AI App — Chụp & Chấm Bài Viết Tay</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- v0.7 Floating Cards: PHẢI đứng ngay sau Tailwind CDN -->
+  <script src="/static/theme.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" />
+  <link rel="stylesheet" href="/static/theme.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
@@ -24,24 +30,18 @@
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen font-sans selection:bg-indigo-600/40">
 
-  <!-- Top App Header -->
-  <header class="sticky top-0 z-30 bg-slate-900/95 backdrop-blur border-b border-slate-800 px-4 py-3 flex items-center justify-between">
-    <div class="flex items-center gap-2.5">
-      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/25">
-        <i class="fa-solid fa-camera text-white text-sm"></i>
+  <!-- Top App Header (v0.7) -->
+  <header class="sticky top-0 z-30 bg-slate-950/90 backdrop-blur px-4 pt-3 pb-2 flex items-center justify-between gap-3">
+    <div class="min-w-0">
+      <div class="flex items-center gap-2">
+        <a href="/app" class="em-logo text-[24px]">edumark<svg class="em-sparks" width="18" height="17" viewBox="0 0 22 20" aria-hidden="true"><g stroke-width="3.2" stroke-linecap="round"><path d="M4 12 L2 6" stroke="#F6AF2F"/><path d="M8.5 10 L9 3" stroke="#3382BF"/><path d="M13 11 L17 5" stroke="#6FB043"/><path d="M15 15 L20.5 13" stroke="#CF2967"/></g></svg></a>
+        <span class="em-chip em-chip-soft !h-5 !px-1.5 !text-[10px] em-num">v0.7</span>
       </div>
-      <div>
-        <div class="flex items-center gap-1.5">
-          <h1 class="text-sm font-bold tracking-wide text-white">EduMark AI</h1>
-          <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">v0.6</span>
-        </div>
-        <p id="provider-pill" class="text-[11px] text-slate-400">Đang kiểm tra AI...</p>
-      </div>
+      <p id="provider-pill" class="text-[11px] text-slate-500 truncate mt-0.5">Đang kiểm tra AI...</p>
     </div>
-    <div class="flex items-center gap-2">
-      <a href="/" class="text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1.5 rounded-lg border border-slate-700">
-        <i class="fa-solid fa-desktop mr-1"></i>Desktop
-      </a>
+    <div class="flex items-center gap-2 shrink-0">
+      <button onclick="toggleThemeMobile()" class="em-iconbtn !w-9 !h-9 !bg-slate-900" title="Đổi giao diện Sáng / Tối"><i id="mob-dark-icon" class="fa-solid fa-moon"></i></button>
+      <a href="/" class="em-iconbtn !w-9 !h-9 !bg-slate-900" title="Mở Desktop"><i class="fa-solid fa-desktop"></i></a>
     </div>
   </header>
 
@@ -50,29 +50,29 @@
 
     <!-- TAB 1: CAPTURE -->
     <section id="tab-capture" class="space-y-4">
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+      <div class="em-card p-4 space-y-3">
         <!-- Chế độ chụp: 1 Học sinh vs Chụp liên hoàn cả xấp lớp -->
-        <div class="grid grid-cols-2 gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
-          <button id="mob-mode-single" onclick="setCaptureMode('single')" class="py-2 rounded-lg text-xs font-bold bg-indigo-600 text-white transition">
-            👤 1 Học sinh
+        <div class="em-seg">
+          <button id="mob-mode-single" onclick="setCaptureMode('single')" class="is-on">
+            <i class="fa-solid fa-user"></i> 1 học sinh
           </button>
-          <button id="mob-mode-class" onclick="setCaptureMode('class')" class="py-2 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition">
-            📚 Cả xấp lớp (Tự tách HS)
+          <button id="mob-mode-class" onclick="setCaptureMode('class')">
+            <i class="fa-solid fa-users"></i> Cả lớp (tự tách HS)
           </button>
         </div>
         <div class="flex items-center justify-between">
           <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Đề thi / Barem chấm</label>
           <span id="capture-limit-label" class="text-[11px] text-indigo-400">Hỗ trợ nhiều trang</span>
         </div>
-        <select id="exam-select" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500">
+        <select id="exam-select" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500">
           <option value="AUTO">🎯 Tự động nhận diện Đề bài (AI Auto)</option>
           <option value="TOAN9_01">📐 TOAN9_01 — PT chứa ẩn ở mẫu</option>
         </select>
-        <input id="student-name-input" type="text" placeholder="Họ tên học sinh (để trống AI tự đọc từ đầu giấy)" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500" />
+        <input id="student-name-input" type="text" placeholder="Họ tên học sinh (để trống AI tự đọc từ đầu giấy)" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500" />
       </div>
 
-      <!-- Camera / Upload Card -->
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+      <!-- Camera / Upload (v0.7: khối nổi trực tiếp trên nền) -->
+      <div class="space-y-3">
         <div id="live-camera-box" class="hidden relative rounded-xl overflow-hidden bg-black aspect-[3/4]">
           <video id="camera-video" autoplay muted playsinline webkit-playsinline class="w-full h-full object-cover"></video>
           <div class="absolute inset-4 rounded-xl doc-frame pointer-events-none flex flex-col justify-between p-2">
@@ -84,7 +84,7 @@
           </div>
           <div id="camera-flash" class="hidden absolute inset-0 bg-white/75 pointer-events-none"></div>
           <div class="absolute bottom-3 inset-x-0 flex items-center justify-center gap-4">
-            <button onclick="stopLiveCamera()" class="w-11 h-11 rounded-full bg-slate-900/85 text-white border border-slate-600 flex items-center justify-center">
+            <button onclick="stopLiveCamera()" class="w-11 h-11 rounded-full bg-slate-900/85 text-slate-100 border border-slate-600 flex items-center justify-center">
               <i class="fa-solid fa-xmark"></i>
             </button>
             <button onclick="snapFromVideo()" class="w-16 h-16 rounded-full bg-white border-4 border-indigo-500 shadow-lg active:scale-95 transition flex items-center justify-center">
@@ -97,25 +97,26 @@
         </div>
 
         <div id="capture-buttons" class="grid grid-cols-2 gap-3">
-          <label for="native-camera-input" class="cursor-pointer bg-gradient-to-br from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-2xl p-4 flex flex-col items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 active:scale-98 transition relative overflow-hidden">
-            <i class="fa-solid fa-camera text-2xl"></i>
-            <span class="text-sm font-bold">Chụp bài ngay</span>
-            <span class="text-[11px] text-indigo-100/80">Mở Camera sau</span>
+          <label for="native-camera-input" class="col-span-2 cursor-pointer text-white rounded-[22px] p-5 flex flex-col items-start gap-1 active:scale-[.98] transition relative overflow-hidden" style="background: var(--em-blue); box-shadow: 0 24px 40px -20px rgba(51,130,191,.9);">
+            <span class="em-ico lg" style="background: rgba(255,255,255,.22);"><i class="fa-solid fa-camera"></i></span>
+            <span class="text-2xl font-extrabold leading-tight mt-3">Chụp bài ngay</span>
+            <span class="text-[13px] opacity-85">Camera sau · tự nắn thẳng, khử bóng</span>
+            <svg class="em-ribbon" style="right:-30px;bottom:-40px" width="170" height="150" viewBox="0 0 170 150" aria-hidden="true"><path d="M20 140 C 40 60, 100 20, 160 30" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="26" stroke-linecap="round"/></svg>
+            <span class="em-dots" style="right:14px;top:16px;--c:#fff;"></span>
             <input id="native-camera-input" type="file" accept="image/*" capture="environment" class="sr-only" onchange="handleFilesSelected(this.files)" />
           </label>
-          <label for="gallery-input" class="cursor-pointer bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 active:scale-98 transition relative overflow-hidden">
-            <i class="fa-solid fa-images text-2xl text-indigo-400"></i>
-            <span class="text-sm font-bold">Chọn từ thư viện</span>
-            <span class="text-[11px] text-slate-400">Chọn 1 hoặc nhiều ảnh</span>
+          <label for="gallery-input" class="col-span-2 cursor-pointer em-card flex items-center gap-3 p-3.5 active:scale-[.98] transition relative overflow-hidden">
+            <span class="em-ico em-i-cyan"><i class="fa-solid fa-images"></i></span>
+            <span><span class="block text-sm font-bold text-slate-100">Chọn từ thư viện</span><span class="block text-[11px] text-slate-500">Chọn 1 hoặc nhiều ảnh</span></span>
             <input id="gallery-input" type="file" accept="image/*" multiple class="sr-only" onchange="handleFilesSelected(this.files)" />
           </label>
         </div>
 
         <div class="flex items-center justify-between gap-2">
-          <button onclick="startLiveCamera()" class="flex-1 py-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-xs font-medium text-indigo-300 flex items-center justify-center gap-2">
+          <button onclick="startLiveCamera()" class="flex-1 h-12 em-card !rounded-2xl text-xs font-semibold text-indigo-600 flex items-center justify-center gap-2">
             <i class="fa-solid fa-crop-simple"></i> Camera trực tiếp (Chụp liên tiếp)
           </button>
-          <label class="flex items-center gap-1.5 text-[11px] text-slate-300 bg-slate-800/60 px-2.5 py-2.5 rounded-xl border border-slate-700 cursor-pointer">
+          <label class="em-card !rounded-2xl flex items-center gap-1.5 text-[11px] font-semibold text-slate-300 px-3 h-12 cursor-pointer">
             <input id="chk-continuous" type="checkbox" checked class="accent-indigo-500" />
             <span>Liên tiếp</span>
           </label>
@@ -129,7 +130,7 @@
         </div>
 
         <!-- Captured Pages Tray -->
-        <div id="pages-tray-wrapper" class="hidden space-y-2.5 pt-2 border-t border-slate-800">
+        <div id="pages-tray-wrapper" class="hidden space-y-2.5 pt-1">
           <div class="flex items-center justify-between">
             <span class="text-xs font-semibold text-slate-300">Các trang đã chụp (<span id="page-count-label">0</span>/<span id="page-max-label">10</span>)</span>
             <button onclick="clearPages()" class="text-[11px] text-rose-400 hover:text-rose-300">Xóa hết</button>
@@ -140,7 +141,7 @@
       </div>
 
       <!-- Grade CTA -->
-      <button id="btn-grade-now" onclick="submitMultipageGrade()" disabled class="w-full py-4 rounded-2xl font-bold text-sm bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 transition">
+      <button id="btn-grade-now" onclick="submitMultipageGrade()" disabled class="w-full h-14 rounded-[18px] font-bold text-[15px] bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-900 disabled:text-slate-500 disabled:shadow-none text-white shadow-[0_10px_20px_-10px_rgba(51,130,191,.8)] flex items-center justify-center gap-2 transition">
         <i class="fa-solid fa-wand-magic-sparkles"></i>
         <span id="grade-btn-text">Chụp ít nhất 1 trang để chấm bài</span>
       </button>
@@ -148,7 +149,7 @@
 
     <!-- TAB 2: RESULT -->
     <section id="tab-result" class="hidden space-y-4">
-      <div id="result-empty" class="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-400 text-sm">
+      <div id="result-empty" class="em-card p-8 text-center text-slate-400 text-sm">
         <i class="fa-solid fa-file-pen text-3xl text-slate-600 mb-3 block"></i>
         Chưa có kết quả chấm nào. Hãy chụp bài làm ở tab <strong>Chụp bài</strong>!
       </div>
@@ -169,18 +170,18 @@
         </div>
 
         <!-- Score Header -->
-        <div class="bg-gradient-to-br from-slate-900 to-indigo-950/60 border border-indigo-500/30 rounded-2xl p-4">
+        <div class="em-card p-5 relative overflow-hidden">
           <div class="flex items-start justify-between gap-2">
             <div>
               <p id="res-exam-title" class="text-xs text-indigo-300 font-semibold"></p>
               <div class="flex items-center gap-1.5 mt-0.5">
-                <h2 id="res-student-name" class="text-base font-bold text-white"></h2>
+                <h2 id="res-student-name" class="text-base font-bold text-slate-100"></h2>
                 <button onclick="promptMobileRename()" title="Đổi tên học sinh" class="text-xs text-amber-300 hover:text-amber-200"><i class="fa-solid fa-pen"></i></button>
               </div>
               <p id="res-meta" class="text-[11px] text-slate-400 mt-1"></p>
             </div>
             <div class="text-right">
-              <div class="text-3xl font-extrabold text-emerald-400 leading-none">
+              <div class="text-[38px] font-bold font-mono tracking-tight text-slate-100 leading-none">
                 <span id="res-score">0</span><span class="text-sm text-slate-400 font-medium">/<span id="res-max">10</span></span>
               </div>
               <span id="res-status-badge" class="inline-block mt-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full"></span>
@@ -193,7 +194,7 @@
         </div>
 
         <!-- Full Handwriting Transcription -->
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-2.5">
+        <div class="em-card p-4 space-y-2.5">
           <div class="flex items-center justify-between">
             <h3 class="text-xs font-bold uppercase tracking-wider text-indigo-300">
               <i class="fa-solid fa-eye mr-1.5"></i>Toàn bộ chữ viết tay AI đọc được
@@ -204,7 +205,7 @@
         </div>
 
         <!-- Rubric Breakdown -->
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-2.5">
+        <div class="em-card p-4 space-y-2.5">
           <h3 class="text-xs font-bold uppercase tracking-wider text-emerald-300">
             <i class="fa-solid fa-list-check mr-1.5"></i>Chấm chi tiết từng bước giải
           </h3>
@@ -213,14 +214,14 @@
         </div>
 
         <!-- Fill vào Bảng điểm Excel (Tạo mới hoặc Template có sẵn theo Hàng/Cột) -->
-        <div class="bg-slate-900 border border-cyan-700/50 rounded-2xl p-4 space-y-2.5">
+        <div class="em-card p-4 space-y-2.5">
           <div class="flex items-center justify-between">
             <h3 class="text-xs font-bold uppercase tracking-wider text-cyan-300">
               <i class="fa-solid fa-table mr-1.5"></i>Điền vào Bảng điểm Excel
             </h3>
             <button onclick="mobileCreateQuickGradebook()" class="text-[11px] text-cyan-300 hover:underline font-semibold">+ Tạo bảng mới</button>
           </div>
-          <select id="mob-gb-select" onchange="loadMobileGradebookMeta()" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"></select>
+          <select id="mob-gb-select" onchange="loadMobileGradebookMeta()" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100"></select>
           <div class="grid grid-cols-2 gap-2">
             <select id="mob-gb-col-select" class="bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-2 text-xs text-amber-300"></select>
             <select id="mob-gb-row-select" class="bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-2 text-xs text-slate-200"></select>
@@ -237,7 +238,7 @@
         </div>
 
         <!-- Quick HITL Review -->
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+        <div class="em-card p-4 space-y-3">
           <h3 class="text-xs font-bold uppercase tracking-wider text-amber-300">
             <i class="fa-solid fa-user-check mr-1.5"></i>Giáo viên đối soát & chốt điểm
           </h3>
@@ -245,11 +246,11 @@
             <span class="text-xs text-slate-300">Điều chỉnh điểm chốt:</span>
             <div class="flex items-center gap-2">
               <button onclick="adjustOverride(-0.25)" class="w-9 h-9 rounded-lg bg-slate-700 hover:bg-slate-600 font-bold text-sm">-0.25</button>
-              <input id="override-score-input" type="number" step="0.25" min="0" class="w-16 text-center bg-slate-950 border border-slate-700 rounded-lg py-1.5 text-sm font-bold text-white" />
+              <input id="override-score-input" type="number" step="0.25" min="0" class="w-16 text-center bg-slate-950 border border-slate-700 rounded-lg py-1.5 text-sm font-bold text-slate-100" />
               <button onclick="adjustOverride(0.25)" class="w-9 h-9 rounded-lg bg-slate-700 hover:bg-slate-600 font-bold text-sm">+0.25</button>
             </div>
           </div>
-          <textarea id="teacher-note-input" rows="2" placeholder="Ghi chú / lời phê bổ sung của giáo viên..." class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"></textarea>
+          <textarea id="teacher-note-input" rows="2" placeholder="Ghi chú / lời phê bổ sung của giáo viên..." class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"></textarea>
           <button onclick="approveCurrent()" class="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg">
             <i class="fa-solid fa-check-double"></i> Chốt điểm & Lưu vào sổ điểm
           </button>
@@ -271,9 +272,9 @@
   </main>
 
   <!-- Bottom Tab Bar -->
-  <nav class="fixed bottom-0 inset-x-0 z-30 bg-slate-900/95 backdrop-blur border-t border-slate-800 px-2 py-2">
+  <nav class="fixed bottom-0 inset-x-0 z-30 bg-slate-900 px-2 pt-2 pb-[calc(env(safe-area-inset-bottom,0px)+8px)]" style="box-shadow: 0 -1px 0 var(--em-line);">
     <div class="max-w-lg mx-auto grid grid-cols-3 gap-1">
-      <button onclick="switchTab('capture')" id="nav-capture" class="py-1.5 rounded-xl flex flex-col items-center gap-1 text-indigo-400 bg-indigo-500/10">
+      <button onclick="switchTab('capture')" id="nav-capture" class="py-1.5 rounded-xl flex flex-col items-center gap-1 text-indigo-600">
         <i class="fa-solid fa-camera text-base"></i>
         <span class="text-[11px] font-semibold">Chụp bài</span>
       </button>
@@ -302,12 +303,8 @@
     function setCaptureMode(mode) {
       captureMode = mode;
       const isClass = mode === 'class';
-      document.getElementById('mob-mode-single').className = !isClass
-        ? 'py-2 rounded-lg text-xs font-bold bg-indigo-600 text-white transition'
-        : 'py-2 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition';
-      document.getElementById('mob-mode-class').className = isClass
-        ? 'py-2 rounded-lg text-xs font-bold bg-emerald-600 text-white transition'
-        : 'py-2 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition';
+      document.getElementById('mob-mode-single').classList.toggle('is-on', !isClass);
+      document.getElementById('mob-mode-class').classList.toggle('is-on', isClass);
       document.getElementById('student-name-input').classList.toggle('hidden', isClass);
       document.getElementById('capture-limit-label').textContent = isClass ? 'Tối đa 30 ảnh · Tự tách HS' : 'Tối đa 10 trang / 1 HS';
       document.getElementById('page-max-label').textContent = isClass ? '30' : '10';
@@ -347,9 +344,9 @@
         document.getElementById(`tab-${t}`).classList.toggle('hidden', t !== name);
         const nav = document.getElementById(`nav-${t}`);
         if (t === name) {
-          nav.className = 'py-1.5 rounded-xl flex flex-col items-center gap-1 text-indigo-400 bg-indigo-500/10';
+          nav.className = 'py-1.5 rounded-xl flex flex-col items-center gap-1 text-indigo-600';
         } else {
-          nav.className = 'py-1.5 rounded-xl flex flex-col items-center gap-1 text-slate-400';
+          nav.className = 'py-1.5 rounded-xl flex flex-col items-center gap-1 text-slate-500';
         }
       });
       if (name === 'history') loadHistory();
@@ -534,7 +531,7 @@
         card.className = 'relative rounded-xl overflow-hidden border ' + (ok ? 'border-emerald-500/40' : 'border-amber-500');
         card.innerHTML = `
           <img src="${p.url}" class="w-full h-24 object-cover" />
-          <span class="absolute top-1 left-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-950/80 text-white">Tr.${idx + 1}</span>
+          <span class="absolute top-1 left-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-950/80 text-slate-100">Tr.${idx + 1}</span>
           <button onclick="removePage(${idx})" class="absolute top-1 right-1 w-5 h-5 rounded-full bg-rose-600 text-white text-[10px] flex items-center justify-center">×</button>
           <div class="absolute bottom-0 inset-x-0 text-[9px] text-center py-0.5 font-semibold ${ok ? 'bg-emerald-600/85 text-white' : 'bg-amber-500/90 text-slate-950'}">
             ${p.quality ? (ok ? '✓ Rõ nét' : '⚠ Hơi mờ/tối') : 'Đang kiểm...'}
@@ -941,7 +938,7 @@
           card.onclick = () => { currentRecord = rec; renderResult(rec); switchTab('result'); };
           card.innerHTML = `
             <div>
-              <p class="text-sm font-bold text-white">${rec.student_name}</p>
+              <p class="text-sm font-bold text-slate-100">${rec.student_name}</p>
               <p class="text-[11px] text-slate-400">${rec.exam_title || rec.exam_id} · ${rec.page_count || 1} trang</p>
             </div>
             <div class="text-right">
@@ -955,6 +952,17 @@
         box.innerHTML = '<div class="text-xs text-rose-400 p-4 text-center">Lỗi tải lịch sử.</div>';
       }
     }
+
+    // v0.7: Sáng/Tối dùng chung hợp đồng localStorage['theme'] với Desktop (static/theme.js)
+    function toggleThemeMobile() {
+      const isDark = window.emSetTheme(window.emIsDark() ? 'light' : 'dark');
+      syncMobileDarkIcon(isDark);
+    }
+    function syncMobileDarkIcon(isDark) {
+      const icon = document.getElementById('mob-dark-icon');
+      if (icon) icon.className = isDark ? 'fa-solid fa-sun text-amber-400' : 'fa-solid fa-moon';
+    }
+    syncMobileDarkIcon(window.emIsDark());
 
     initApp();
   </script>

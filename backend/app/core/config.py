@@ -10,7 +10,7 @@ _DATA_DIR = os.path.join(_BACKEND_DIR, "data")
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "EduMark AI - Hệ thống Chấm bài Tự động Thông minh"
-    VERSION: str = "0.2.0"
+    VERSION: str = "0.7.0"
     API_V1_STR: str = "/api/v1"
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "local")
 

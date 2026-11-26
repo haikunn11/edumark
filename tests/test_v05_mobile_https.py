@@ -20,7 +20,7 @@ def test_mobile_pwa_contains_v05_continuous_class_scan():
     res = client.get("/app")
     assert res.status_code == 200
     html = res.text
-    assert "v0.6" in html
+    assert "v0.7" in html
     assert "grade-folder-smart-upload" in html
     assert "mobile-class-bar" in html
     assert "chk-continuous" in html
@@ -31,7 +31,7 @@ def test_desktop_dashboard_contains_mobile_qr_modal():
     res = client.get("/")
     assert res.status_code == 200
     html = res.text
-    assert "v0.6" in html
+    assert "v0.7" in html
     assert "openMobileQrModal" in html
     assert "mobile-qr-modal" in html
     assert "openGradebookModal" in html

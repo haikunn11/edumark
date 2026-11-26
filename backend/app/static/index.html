@@ -1,27 +1,17 @@
 <!DOCTYPE html>
-<html lang="vi" class="dark">
+<html lang="vi">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#DCE4EC">
   <title>EduMark AI - Split-Screen Dashboard Chấm Bài Tự Động</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            brand: {
-              50: '#eef2ff',
-              500: '#6366f1',
-              600: '#4f46e5',
-              700: '#4338ca',
-            }
-          }
-        }
-      }
-    }
-  </script>
+  <!-- v0.7 Floating Cards: bảng màu qua biến CSS + áp theme Sáng/Tối (PHẢI đứng ngay sau Tailwind CDN) -->
+  <script src="/static/theme.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap">
+  <link rel="stylesheet" href="/static/theme.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <!-- KaTeX for beautiful Math / LaTeX Rendering -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
@@ -38,217 +28,207 @@
     #image-container.dragging {
       cursor: grabbing;
     }
-    .custom-scrollbar::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
-    }
-    .custom-scrollbar::-webkit-scrollbar-track {
-      background: rgba(15, 23, 42, 0.6);
-      border-radius: 4px;
-    }
-    .custom-scrollbar::-webkit-scrollbar-thumb {
-      background: rgba(100, 116, 139, 0.45);
-      border-radius: 4px;
-    }
-    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-      background: rgba(148, 163, 184, 0.7);
-    }
     .drag-active {
-      border: 3px dashed #6366f1 !important;
-      background-color: rgba(99, 102, 241, 0.08) !important;
+      box-shadow: inset 0 0 0 3px var(--em-blue) !important;
+      background-color: rgb(var(--tw-indigo-500) / 0.08) !important;
     }
+    /* Trang chủ (placeholder) rộng theo cột trái 7/12 */
+    .em-home { width: min(800px, calc(100vw - 110px)); }
+    @media (min-width: 1024px) { .em-home { width: min(800px, calc(58.333vw - 130px)); } }
+    .em-tile { display: flex; flex-direction: column; gap: 12px; padding: 18px; min-height: 150px; text-align: left; cursor: pointer; border: 0; }
+    .em-tile h3 { font-size: 16px; font-weight: 700; line-height: 1.25; color: var(--em-ink); }
+    .em-tile p { font-size: 12px; color: var(--em-ink-3); margin-top: 2px; }
+    .em-q-row { display: flex; align-items: center; gap: 14px; padding: 10px 6px; border-bottom: 1.5px solid var(--em-soft); width: 100%; text-align: left; background: transparent; border-radius: 10px; }
+    .em-q-row:hover { background: var(--em-soft); }
+    .em-q-row:last-child { border-bottom: 0; }
   </style>
 </head>
-<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col font-sans transition-colors duration-200">
+<body class="bg-slate-950 text-slate-100 min-h-screen lg:h-screen lg:overflow-hidden flex flex-col font-sans transition-colors duration-200">
 
-  <!-- Header Bar -->
-  <header class="bg-slate-800 border-b border-slate-700 px-6 py-3 flex items-center justify-between shadow-sm select-none">
-    <div class="flex items-center gap-3">
-      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-500/25">
-        <i class="fa-solid fa-graduation-cap text-lg"></i>
+  <!-- Header Bar (v0.7: 1 nút chính + nhóm icon) -->
+  <header class="relative z-40 bg-slate-900 px-6 h-[68px] shrink-0 flex items-center gap-4 select-none" style="box-shadow: 0 1px 0 var(--em-line);">
+    <a href="/" class="em-logo text-[28px]" title="EduMark AI">edumark<svg class="em-sparks" width="22" height="20" viewBox="0 0 22 20" aria-hidden="true"><g stroke-width="3.2" stroke-linecap="round"><path d="M4 12 L2 6" stroke="#F6AF2F"/><path d="M8.5 10 L9 3" stroke="#3382BF"/><path d="M13 11 L17 5" stroke="#6FB043"/><path d="M15 15 L20.5 13" stroke="#CF2967"/></g></svg></a>
+    <span class="em-chip em-chip-soft !h-6 !px-2 !text-[10px] em-num -ml-2">v0.7</span>
+
+    <div class="hidden xl:block pl-4 border-l-[1.5px] border-slate-700 min-w-0 max-w-[300px]">
+      <p class="text-sm font-bold text-slate-100 truncate flex items-center gap-1.5" id="exam-title-header"><i class="fa-solid fa-wand-magic-sparkles text-indigo-400"></i><span>Tự động nhận diện đề bài</span></p>
+      <div class="flex items-center gap-2 mt-0.5">
+        <span class="text-[11px] text-slate-500">Đề / barem đang chấm</span>
+        <span id="badge-confidence" class="hidden text-xs px-2.5 py-0.5 rounded-full font-bold border">🟢 95%</span>
       </div>
-      <div>
-        <div class="flex items-center gap-2">
-          <h1 class="text-base font-bold text-white tracking-wide">EduMark AI</h1>
-          <span class="text-[10px] uppercase font-bold tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full">v0.6</span>
-          <span id="badge-confidence" class="hidden text-xs px-2.5 py-0.5 rounded-full font-bold border">🟢 95%</span>
+    </div>
+
+    <!-- Học sinh & trạng thái -->
+    <div class="hidden md:flex items-center gap-3 bg-slate-800 rounded-full pl-1.5 pr-4 py-1.5 min-w-0">
+      <div id="student-avatar" class="em-avatar !w-[34px] !h-[34px] !text-xs" style="--ring: rgb(var(--tw-slate-600));"><i class="fa-solid fa-user text-slate-500"></i></div>
+      <div class="leading-tight min-w-0">
+        <div class="flex items-center gap-1.5">
+          <strong id="student-name-display" class="text-sm text-slate-100 truncate max-w-[160px]">Chưa mở bài</strong>
+          <button onclick="promptRenameStudent()" title="Đổi tên học sinh" class="text-[10px] text-slate-500 hover:text-indigo-500 transition"><i class="fa-solid fa-pen"></i></button>
         </div>
-        <p class="text-xs text-indigo-300 font-medium flex items-center gap-1.5" id="exam-title-header"><i class="fa-solid fa-wand-magic-sparkles text-indigo-400"></i><span>🎯 Tự động nhận diện Đề bài (Toán THCS)</span></p>
+        <div class="text-[11px] text-slate-500 flex items-center gap-1.5 whitespace-nowrap">
+          <strong id="status-display" class="text-slate-400 font-semibold">Chưa chấm</strong>
+          <span id="cache-badge" class="hidden text-emerald-400 font-mono"><i class="fa-solid fa-bolt mr-0.5"></i>Cache</span>
+        </div>
       </div>
     </div>
 
-    <!-- Center Status -->
-    <div class="hidden md:flex items-center gap-4 text-xs text-slate-300 bg-slate-900/60 border border-slate-700/60 px-4 py-1.5 rounded-full">
-      <span class="flex items-center gap-1.5"><i class="fa-solid fa-user text-indigo-400"></i> <strong id="student-name-display">Nguyễn Văn An</strong><button onclick="promptRenameStudent()" title="Đổi tên học sinh" class="text-[10px] text-slate-400 hover:text-amber-300 transition"><i class="fa-solid fa-pen"></i></button></span>
-      <span class="text-slate-600">|</span>
-      <span>Trạng thái: <strong id="status-display" class="text-amber-400 font-semibold">Chưa chấm</strong></span>
-      <span class="text-slate-600">|</span>
-      <span id="cache-badge" class="hidden text-emerald-400 font-mono"><i class="fa-solid fa-bolt mr-1"></i>Cache Hit</span>
-    </div>
+    <div class="flex-1"></div>
 
-    <!-- Quick Actions -->
-    <div class="flex items-center gap-2.5">
-      <a href="/app" title="Mở chế độ Mobile App Chụp Bài" class="bg-violet-600/80 hover:bg-violet-500 text-white text-xs px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1.5 border border-violet-500/50">
-        <i class="fa-solid fa-mobile-screen-button"></i> <span class="hidden sm:inline">App Chụp Bài</span>
-      </a>
-      <button onclick="openMobileQrModal()" title="Quét QR mở App Chụp Bài trực tiếp trên Điện thoại (HTTPS)" class="bg-emerald-600/80 hover:bg-emerald-500 text-white text-xs px-2.5 py-1.5 rounded-lg font-medium transition flex items-center gap-1 border border-emerald-500/50">
-        <i class="fa-solid fa-qrcode"></i> <span class="hidden sm:inline">QR</span>
-      </button>
-      <button onclick="openGradebookModal()" title="Bảng điểm Excel: Tạo bảng mới hoặc Fill vào file có sẵn theo Hàng/Cột" class="bg-cyan-600 hover:bg-cyan-500 text-white text-xs px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1.5 shadow">
-        <i class="fa-solid fa-table"></i> <span class="hidden sm:inline">Bảng điểm</span>
-      </button>
-      <!-- API Key Status Pill -->
-      <button onclick="openApiKeyModal()" id="btn-api-key" class="bg-slate-700/70 hover:bg-slate-700 text-xs px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1.5 border border-slate-600">
-        <span id="api-dot" class="w-2 h-2 rounded-full bg-amber-400"></span>
-        <span id="api-label" class="text-slate-300 font-mono text-[11px]">Cài API Key</span>
-      </button>
+    <!-- API Key Status Pill -->
+    <button onclick="openApiKeyModal()" id="btn-api-key" class="h-10 px-2.5 rounded-xl hover:bg-slate-800 text-xs font-semibold transition flex items-center gap-2" title="Trạng thái AI / Cài API Key">
+      <span id="api-dot" class="w-2 h-2 rounded-full bg-amber-400"></span>
+      <span id="api-label" class="text-slate-300 font-mono text-[11px]">Cài API Key</span>
+    </button>
 
-      <button onclick="toggleDarkMode()" title="Đổi giao diện Sáng / Tối" class="p-2 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-300 text-xs border border-slate-600 transition">
-        <i id="dark-icon" class="fa-solid fa-moon"></i>
-      </button>
+    <button onclick="openHistoryModal()" class="em-iconbtn" title="Lịch sử bài đã chấm"><i class="fa-solid fa-clock-rotate-left"></i></button>
+    <button onclick="openGradebookModal()" class="em-iconbtn" title="Bảng điểm Excel: tạo mới hoặc điền vào file có sẵn"><i class="fa-solid fa-table-cells"></i></button>
+    <button onclick="openMobileQrModal()" class="em-iconbtn" title="Quét QR mở App Chụp Bài trên điện thoại (HTTPS)"><i class="fa-solid fa-qrcode"></i></button>
+    <a href="/app" class="em-iconbtn" title="Mở chế độ Mobile App Chụp Bài"><i class="fa-solid fa-mobile-screen-button"></i></a>
+    <button onclick="toggleDarkMode()" class="em-iconbtn" title="Đổi giao diện Sáng / Tối"><i id="dark-icon" class="fa-solid fa-moon"></i></button>
 
-      <button onclick="openRubricModal()" class="bg-teal-600 hover:bg-teal-500 text-white text-xs px-3 py-2 rounded-lg font-medium transition flex items-center gap-1.5 shadow">
-        <i class="fa-solid fa-book-open"></i> <span>Tạo Đề & Barem</span>
+    <div class="relative">
+      <button id="btn-new-grade" onclick="toggleNewGradeMenu(event)" class="em-btn em-btn-primary">
+        <i class="fa-solid fa-plus"></i><span class="hidden sm:inline">Chấm bài mới</span><i class="fa-solid fa-chevron-down text-[11px] opacity-80"></i>
       </button>
-
-      <button onclick="openUploadModal()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-3 py-2 rounded-lg font-medium transition flex items-center gap-1.5 shadow">
-        <i class="fa-solid fa-cloud-arrow-up"></i> <span>Tải bài thi</span>
-      </button>
-
-      <button onclick="openFolderModal()" class="bg-sky-600 hover:bg-sky-500 text-white text-xs px-3 py-2 rounded-lg font-medium transition flex items-center gap-1.5 shadow">
-        <i class="fa-solid fa-folder-open"></i> <span>Chấm Folder</span>
-      </button>
-
-      <button onclick="openHistoryModal()" class="bg-slate-700 hover:bg-slate-600 text-slate-100 text-xs px-3 py-2 rounded-lg font-medium transition flex items-center gap-1.5 border border-slate-600">
-        <i class="fa-solid fa-clock-rotate-left text-indigo-300"></i> <span>Lịch sử</span>
-      </button>
-
-      <button onclick="openOverrideModal()" id="btn-override" class="bg-amber-600 hover:bg-amber-500 text-white text-xs px-3 py-2 rounded-lg font-medium transition flex items-center gap-1.5 shadow">
-        <i class="fa-solid fa-pen-to-square"></i> <span>Sửa điểm (O)</span>
-      </button>
-
-      <button onclick="approveCurrentSubmission()" id="btn-approve" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-4 py-2 rounded-lg font-semibold transition flex items-center gap-1.5 shadow-lg shadow-emerald-600/20">
-        <i class="fa-solid fa-check-double"></i> <span>Duyệt bài (A)</span>
-      </button>
+      <div id="new-grade-menu" class="em-menu hidden">
+        <button onclick="closeNewGradeMenu(); openUploadModal();"><span class="em-ico sm em-i-cyan"><i class="fa-solid fa-cloud-arrow-up"></i></span><span>Tải bài thi<small>1 học sinh · ảnh hoặc PDF</small></span></button>
+        <button onclick="closeNewGradeMenu(); openFolderModal();"><span class="em-ico sm em-i-green"><i class="fa-solid fa-folder-open"></i></span><span>Chấm cả folder<small>AI tự tách bài theo học sinh</small></span></button>
+        <button onclick="closeNewGradeMenu(); openRubricModal();"><span class="em-ico sm em-i-purple"><i class="fa-solid fa-book-open"></i></span><span>Tạo đề &amp; barem<small>Từ ảnh đề, đáp án hoặc gõ tay</small></span></button>
+        <button onclick="closeNewGradeMenu(); openMobileQrModal();"><span class="em-ico sm em-i-blue"><i class="fa-solid fa-mobile-screen"></i></span><span>Chụp bằng điện thoại<small>Quét QR, chụp liên tiếp</small></span></button>
+      </div>
     </div>
   </header>
 
   <!-- Top Mock Warning Banner -->
-  <div id="mock-banner" class="hidden bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 flex items-center justify-between text-xs text-amber-200 z-20">
-    <div class="flex items-center gap-2">
-      <i class="fa-solid fa-triangle-exclamation text-amber-400 text-sm"></i>
-      <span><strong>Chế độ Giả lập (Chưa cấu hình Gemini API Key):</strong> Ảnh bài thi kéo thả vào sẽ tạm thời hiển thị dữ liệu mẫu. Để AI đọc chữ viết tay và chấm điểm bài thật của bạn, hãy bấm nút cài đặt API Key (Google cung cấp miễn phí 100%).</span>
+  <div id="mock-banner" class="hidden em-highlight mx-5 mt-4 justify-between z-20">
+    <div class="flex items-center gap-3">
+      <span class="em-ico sm"><i class="fa-solid fa-triangle-exclamation"></i></span>
+      <span><strong>Chế độ giả lập (chưa cấu hình Gemini API Key):</strong> <small class="inline">Ảnh kéo thả vào sẽ tạm hiển thị dữ liệu mẫu. Cài API Key (Google cung cấp miễn phí) để AI đọc và chấm bài thật.</small></span>
     </div>
-    <button onclick="openApiKeyModal()" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1 rounded text-[11px] whitespace-nowrap ml-4 transition shadow">
-      <i class="fa-solid fa-key mr-1"></i> Cài API Key ngay
+    <button onclick="openApiKeyModal()" class="em-btn em-btn-sm whitespace-nowrap ml-4" style="background: var(--em-orange-ink); color: #fff;">
+      <i class="fa-solid fa-key"></i> Cài API Key ngay
     </button>
   </div>
 
-  <!-- Main Split-Screen Layout -->
-  <main class="flex-1 grid grid-cols-12 gap-0 overflow-hidden relative">
+  <!-- Main Split-Screen Layout (v0.7 Floating Cards) -->
+  <main class="flex-1 lg:min-h-0 lg:overflow-hidden grid grid-cols-12 lg:grid-rows-[minmax(0,1fr)] gap-5 p-5 relative">
+    <!-- họa tiết nền (không đè ảnh bài làm) -->
+    <svg class="em-ribbon hidden lg:block" style="position:fixed;right:-60px;bottom:-110px;z-index:0" width="420" height="300" viewBox="0 0 420 300" aria-hidden="true"><path d="M30 290 C 60 120, 230 40, 400 70" fill="none" stroke="#F6AF2F" stroke-width="34" stroke-linecap="round" opacity=".9"/></svg>
 
     <!-- LEFT PANEL: Image Viewer (7 / 12) -->
-    <section class="col-span-12 lg:col-span-7 bg-slate-950 flex flex-col border-r border-slate-800 relative overflow-hidden select-none">
-      
+    <section class="col-span-12 lg:col-span-7 em-card flex flex-col relative overflow-hidden select-none min-h-[560px] lg:min-h-0 z-10">
+
       <!-- Image Toolbar -->
-      <div class="bg-slate-900/90 backdrop-blur-sm border-b border-slate-800 px-4 py-2 flex items-center justify-between text-xs text-slate-400 z-10">
+      <div class="px-4 py-3 flex items-center justify-between gap-3 text-xs text-slate-400 z-10">
         <div class="flex items-center gap-2 overflow-hidden">
-          <span class="font-bold text-slate-300 uppercase tracking-wider text-[11px] shrink-0"><i class="fa-solid fa-image text-indigo-400 mr-1.5"></i>Bài thi học sinh</span>
-          <span id="active-page-pill" class="hidden bg-sky-500/20 text-sky-200 border border-sky-500/40 px-2 py-0.5 rounded text-[10px] font-mono truncate max-w-[300px]">Ảnh 1/1</span>
-          <span id="blur-warning" class="hidden bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded text-[10px] font-semibold shrink-0"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Ảnh bị mờ</span>
-          <span id="loading-pill" class="hidden bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded text-[10px] font-semibold shrink-0"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Đang phân tích AI...</span>
+          <span class="font-bold text-slate-100 text-[15px] shrink-0">Bài làm</span>
+          <span id="active-page-pill" class="hidden em-chip em-chip-cyan em-num !text-[10px] truncate max-w-[300px]">Ảnh 1/1</span>
+          <span id="blur-warning" class="hidden em-chip em-chip-magenta shrink-0"><i class="fa-solid fa-triangle-exclamation"></i>Ảnh bị mờ</span>
+          <span id="loading-pill" class="hidden em-chip em-chip-blue shrink-0"><i class="fa-solid fa-spinner fa-spin"></i>Đang phân tích AI...</span>
         </div>
 
         <!-- Zoom Controls -->
-        <div class="flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg p-0.5">
-          <button onclick="zoomImage(-0.2)" title="Thu nhỏ (-)" class="p-1.5 hover:bg-slate-700 rounded text-slate-300"><i class="fa-solid fa-minus"></i></button>
-          <span id="zoom-level-text" class="px-2 font-mono text-[11px] text-slate-300 min-w-[45px] text-center">100%</span>
-          <button onclick="zoomImage(+0.2)" title="Phóng to (+)" class="p-1.5 hover:bg-slate-700 rounded text-slate-300"><i class="fa-solid fa-plus"></i></button>
-          <button onclick="resetZoom()" title="Đặt lại (R)" class="p-1.5 hover:bg-slate-700 rounded text-slate-300 border-l border-slate-700 ml-0.5"><i class="fa-solid fa-arrows-rotate"></i></button>
+        <div class="flex items-center gap-0.5 bg-slate-800 rounded-xl h-9 px-1">
+          <button onclick="zoomImage(-0.2)" title="Thu nhỏ (-)" class="w-8 h-7 rounded-lg hover:bg-slate-700 text-slate-300"><i class="fa-solid fa-minus"></i></button>
+          <span id="zoom-level-text" class="px-1 font-mono text-[11px] text-slate-300 min-w-[45px] text-center">100%</span>
+          <button onclick="zoomImage(+0.2)" title="Phóng to (+)" class="w-8 h-7 rounded-lg hover:bg-slate-700 text-slate-300"><i class="fa-solid fa-plus"></i></button>
+          <button onclick="resetZoom()" title="Đặt lại (R)" class="w-8 h-7 rounded-lg hover:bg-slate-700 text-slate-300 border-l-[1.5px] border-slate-700"><i class="fa-solid fa-arrows-rotate"></i></button>
         </div>
       </div>
 
       <!-- Image Canvas Viewport (With Drag & Drop) -->
-      <div id="image-viewport" class="flex-1 relative overflow-hidden flex items-center justify-center p-6 bg-slate-950 transition-all duration-150">
+      <div id="image-viewport" class="flex-1 relative overflow-hidden flex items-center justify-center p-6 mx-3 rounded-2xl bg-slate-800 transition-all duration-150">
         <div id="image-container" class="relative max-w-full max-h-full">
-          <img id="paper-image" src="" alt="Chưa có ảnh bài thi" class="hidden rounded-lg shadow-2xl border border-slate-700/80 max-h-[80vh] object-contain" />
-          
-          <!-- Empty State / Drag Drop Zone -->
-          <div id="image-placeholder" class="text-center p-12 border-2 border-dashed border-slate-700 rounded-2xl max-w-md pointer-events-none">
-            <div class="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center text-indigo-400 mx-auto mb-4 text-2xl shadow-inner">
-              <i class="fa-solid fa-hand-holding-hand"></i>
+          <img id="paper-image" src="" alt="Chưa có ảnh bài thi" class="hidden rounded-lg max-h-[78vh] object-contain" style="box-shadow: var(--em-shadow-lift);" />
+
+          <!-- Empty State = Trang chủ (kéo thả vẫn hoạt động vì placeholder pointer-events-none) -->
+          <div id="image-placeholder" class="em-home relative pointer-events-none">
+            <div class="em-dots" style="right:24px;top:6px;--c: var(--em-magenta);"></div>
+            <h2 class="text-[38px] leading-[1.12] font-medium tracking-tight text-sky-500">chấm bài viết tay,<br><b class="font-extrabold text-indigo-600">nhanh</b> mà vẫn <b class="font-extrabold text-emerald-500">chuẩn</b>.</h2>
+            <p class="mt-2 text-sm text-slate-300">Chụp hoặc thả ảnh bài làm — AI đọc chữ, SymPy kiểm toán, thầy cô duyệt lần cuối.</p>
+            <div class="mt-6 grid grid-cols-2 xl:grid-cols-3 gap-4 pointer-events-auto">
+              <button onclick="openMobileQrModal()" class="em-card em-lift em-tile"><span class="em-ico lg em-i-blue"><i class="fa-solid fa-mobile-screen"></i></span><span><h3>Chụp bằng điện thoại</h3><p>Quét QR, chụp liên tiếp cả lớp</p></span></button>
+              <button onclick="openUploadModal()" class="em-card em-lift em-tile"><span class="em-ico lg em-i-cyan"><i class="fa-solid fa-cloud-arrow-up"></i></span><span><h3>Tải ảnh / PDF</h3><p>1 học sinh, 1–10 trang</p></span></button>
+              <button onclick="openFolderModal()" class="em-card em-lift em-tile"><span class="em-ico lg em-i-green"><i class="fa-solid fa-folder-open"></i></span><span><h3>Chấm cả folder lớp</h3><p>AI tự tách bài theo học sinh</p></span></button>
+              <button onclick="openRubricModal()" class="em-card em-lift em-tile"><span class="em-ico lg em-i-purple"><i class="fa-solid fa-book-open"></i></span><span><h3>Tạo đề &amp; barem</h3><p>Từ ảnh đề, đáp án hoặc gõ tay</p></span></button>
+              <button onclick="openGradebookModal()" class="em-card em-lift em-tile"><span class="em-ico lg em-i-blue"><i class="fa-solid fa-table-cells"></i></span><span><h3>Bảng điểm Excel</h3><p>Điền vào mẫu VnEdu / SMAS</p></span></button>
+              <button onclick="openHistoryModal()" class="em-card em-lift em-tile"><span class="em-ico lg em-i-cyan"><i class="fa-solid fa-clock-rotate-left"></i></span><span><h3>Mở bài vừa chấm</h3><p>Đối soát lại từng ảnh</p></span></button>
             </div>
-            <h3 class="text-sm font-semibold text-slate-200 mb-1">Kéo thả ảnh bài thi viết tay vào đây</h3>
-            <p class="text-xs text-slate-400 mb-4 leading-relaxed">Hỗ trợ ảnh chụp điện thoại (JPEG, PNG) hoặc tài liệu PDF.<br><span class="text-indigo-400 font-medium">Hệ thống sẽ tự nắn thẳng, khử mờ và chấm điểm.</span></p>
-            <div class="flex items-center justify-center gap-2 pointer-events-auto flex-wrap">
-              <button onclick="openFolderModal()" class="text-xs bg-sky-600 hover:bg-sky-500 text-white px-3.5 py-1.5 rounded-lg transition font-medium shadow">
-                <i class="fa-solid fa-folder-open mr-1"></i> Chấm cả Folder
-              </button>
-              <button onclick="openUploadModal()" class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-1.5 rounded-lg transition font-medium shadow">
-                <i class="fa-solid fa-cloud-arrow-up mr-1"></i> Chọn 1 tệp
-              </button>
-              <button onclick="openHistoryModal()" class="text-xs bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 px-3 py-1.5 rounded-lg transition">
-                <i class="fa-solid fa-clock-rotate-left mr-1"></i> Mở bài vừa chấm
-              </button>
+            <div class="mt-4 flex items-center gap-4 px-5 py-4 rounded-[18px] border-2 border-dashed border-slate-600 bg-slate-900/50">
+              <span class="em-ico bg-slate-900 text-indigo-600" style="box-shadow: var(--em-shadow-card);"><i class="fa-solid fa-arrow-down"></i></span>
+              <div><b class="text-sm text-slate-100">Kéo thả ảnh bài thi vào đây</b><br><span class="text-xs text-slate-500">JPEG, PNG, PDF · hệ thống tự nắn thẳng, khử mờ rồi chấm</span></div>
             </div>
           </div>
         </div>
       </div>
 
       <!-- Multi-Page Filmstrip (Bấm từng ảnh để đối soát 1-1 với chữ AI đọc bên phải) -->
-      <div id="page-filmstrip" class="hidden bg-slate-900/95 border-t border-slate-800 px-3 py-2 flex items-center gap-2 overflow-x-auto custom-scrollbar z-10"></div>
+      <div id="page-filmstrip" class="hidden px-3 pt-2 flex items-center gap-2 overflow-x-auto custom-scrollbar z-10"></div>
 
       <!-- Navigation & Shortcuts Info Footer -->
-      <div class="bg-slate-900 border-t border-slate-800 px-4 py-2 flex items-center justify-between text-[11px] text-slate-500">
+      <div class="px-4 py-2.5 flex items-center justify-between text-[11px] text-slate-500">
         <div class="flex items-center gap-3">
-          <span><kbd class="px-1 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-400">Cuộn chuột</kbd> Zoom</span>
-          <span><kbd class="px-1 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-400">Kéo chuột</kbd> Di chuyển ảnh</span>
+          <span><kbd class="px-1.5 py-0.5 bg-slate-800 rounded text-slate-400">Cuộn chuột</kbd> Zoom</span>
+          <span><kbd class="px-1.5 py-0.5 bg-slate-800 rounded text-slate-400">Kéo chuột</kbd> Di chuyển ảnh</span>
         </div>
         <div class="flex items-center gap-3">
-          <span><kbd class="px-1 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-400">A</kbd> Duyệt</span>
-          <span><kbd class="px-1 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-400">O</kbd> Sửa điểm</span>
-          <span><kbd class="px-1 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-400">Space</kbd> Duyệt bài</span>
+          <span><kbd class="px-1.5 py-0.5 bg-slate-800 rounded text-slate-400">A</kbd> Duyệt</span>
+          <span><kbd class="px-1.5 py-0.5 bg-slate-800 rounded text-slate-400">O</kbd> Sửa điểm</span>
+          <span><kbd class="px-1.5 py-0.5 bg-slate-800 rounded text-slate-400">Space</kbd> Duyệt bài</span>
         </div>
       </div>
     </section>
 
     <!-- RIGHT PANEL: Rubric & Score Review (5 / 12) -->
-    <section class="col-span-12 lg:col-span-5 bg-slate-900 flex flex-col justify-between overflow-y-auto custom-scrollbar border-l border-slate-800">
-      <div class="p-6">
-        
+    <section class="col-span-12 lg:col-span-5 flex flex-col gap-4 lg:min-h-0 z-10">
+      <div id="right-scroll" class="relative flex-1 lg:min-h-0 overflow-y-auto custom-scrollbar p-1 -m-1 flex flex-col gap-4 [&>*]:shrink-0">
+
         <!-- Mock Warning Box when no key is set -->
-        <div id="mock-warning-card" class="hidden bg-amber-950/40 border border-amber-600/60 rounded-xl p-3.5 mb-4 text-xs text-amber-300 shadow">
-          <div class="font-bold flex items-center justify-between text-amber-200 mb-1">
-            <span class="flex items-center gap-1.5"><i class="fa-solid fa-triangle-exclamation text-amber-400"></i> Đây là Kết quả Giả lập (Mock)</span>
-            <span class="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 rounded font-mono">Chưa có API Key</span>
+        <div id="mock-warning-card" class="hidden em-highlight !items-start flex-col !gap-2">
+          <div class="font-bold flex items-center justify-between w-full">
+            <span class="flex items-center gap-2"><i class="fa-solid fa-triangle-exclamation"></i> Đây là kết quả giả lập (mock)</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full font-mono" style="background: rgba(58,38,0,.12);">Chưa có API Key</span>
           </div>
-          <p class="text-[11px] text-amber-300/90 leading-relaxed mb-2.5">
-            Hệ thống chưa có Google Gemini API Key để gửi ảnh chữ viết tay này đi phân tích. Kết quả hiển thị đang là bài giải mẫu. Bạn hãy nhấn nút dưới đây để kích hoạt AI thật:
-          </p>
-          <button onclick="openApiKeyModal()" class="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-lg text-xs transition flex items-center justify-center gap-1.5 shadow">
-            <i class="fa-solid fa-key"></i> Dán Gemini API Key để AI chấm ảnh thật (Miễn phí)
+          <small>Hệ thống chưa có Google Gemini API Key để gửi ảnh chữ viết tay đi phân tích. Kết quả đang là bài giải mẫu.</small>
+          <button onclick="openApiKeyModal()" class="em-btn em-btn-sm w-full" style="background: var(--em-orange-ink); color: #fff;">
+            <i class="fa-solid fa-key"></i> Dán Gemini API Key để AI chấm ảnh thật (miễn phí)
           </button>
         </div>
 
+        <!-- Trang chủ panel phải: bài vừa chấm (ẩn khi đã mở 1 bài) -->
+        <div id="home-recent" class="em-card p-5 relative">
+          <div class="em-dots" style="right:18px;top:16px;--c: var(--em-blue);"></div>
+          <h2 class="text-[15px] font-bold flex items-center gap-2.5 mb-4 text-slate-100"><span class="em-ico sm em-i-green"><i class="fa-solid fa-users"></i></span>Bài vừa chấm</h2>
+          <div id="home-unnamed-bar" class="hidden em-highlight em-tilt -ml-8 mr-4 mb-4 cursor-pointer" onclick="openHistoryModal()">
+            <span class="em-ico sm"><i class="fa-solid fa-user-tag"></i></span>
+            <div><span id="home-unnamed-count">0</span> bài chưa rõ tên học sinh<small>Bấm để mở và gán tên trước khi xuất bảng điểm</small></div>
+          </div>
+          <div id="home-recent-list" class="space-y-0.5">
+            <div class="text-center py-6 text-xs text-slate-500"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Đang tải bài vừa chấm...</div>
+          </div>
+          <button onclick="openHistoryModal()" class="em-btn em-btn-ghost w-full mt-4">Xem toàn bộ lịch sử<i class="fa-solid fa-arrow-right"></i></button>
+        </div>
+
         <!-- Multi-Student Smart Folder Switcher Bar (hiện khi chấm folder có nhiều học sinh) -->
-        <div id="class-batch-bar" class="hidden bg-gradient-to-br from-emerald-950/50 to-slate-900 border border-emerald-600/50 rounded-xl p-3.5 mb-4 space-y-2.5 shadow">
+        <div id="class-batch-bar" class="hidden em-card p-4 space-y-2.5" style="box-shadow: var(--em-shadow-card), inset 0 0 0 2px rgb(var(--tw-emerald-500) / .5);">
           <div class="flex items-start justify-between gap-2">
             <div>
-              <div class="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
-                <i class="fa-solid fa-users-viewfinder"></i>
+              <div class="text-sm font-bold text-emerald-300 flex items-center gap-2">
+                <span class="em-ico sm em-i-green"><i class="fa-solid fa-users-viewfinder"></i></span>
                 <span id="class-batch-title">Đã tự tách 0 học sinh từ Folder</span>
               </div>
-              <p id="class-batch-meta" class="text-[10px] font-mono text-slate-300 mt-0.5"></p>
-              <p id="class-batch-folder" class="text-[10px] font-mono text-emerald-300/90 mt-0.5 truncate max-w-[320px]"></p>
+              <p id="class-batch-meta" class="text-[10px] font-mono text-slate-300 mt-1"></p>
+              <p id="class-batch-folder" class="text-[10px] font-mono text-emerald-300 mt-0.5 truncate max-w-[320px]"></p>
             </div>
             <div class="flex items-center gap-1.5 shrink-0">
-              <button onclick="openGradebookModal()" class="px-2.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-bold flex items-center gap-1 shadow">
+              <button onclick="openGradebookModal()" class="px-2.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-bold flex items-center gap-1">
                 <i class="fa-solid fa-table"></i> Fill Bảng điểm
               </button>
-              <a id="btn-download-class-excel" href="#" class="px-2.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold flex items-center gap-1 shadow">
+              <a id="btn-download-class-excel" href="#" class="px-2.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold flex items-center gap-1">
                 <i class="fa-solid fa-file-excel"></i> Excel
               </a>
-              <a id="btn-download-class-zip" href="#" class="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center gap-1 shadow">
+              <a id="btn-download-class-zip" href="#" class="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center gap-1">
                 <i class="fa-solid fa-file-zipper"></i> Folder (.zip)
               </a>
             </div>
@@ -257,195 +237,180 @@
         </div>
 
         <!-- Score Overview Card -->
-        <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-4 mb-4 shadow-sm">
-          <div class="flex items-center justify-between mb-2">
-            <div>
-              <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">ĐỐI SOÁT ĐIỂM SỐ BAREM</span>
-              <p class="text-xs text-slate-300 font-medium" id="question-id-title">Câu 1: Giải phương trình</p>
-            </div>
-            <div class="text-right">
-              <span class="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold">TỔNG ĐIỂM</span>
-              <div class="text-3xl font-black text-amber-400 font-mono tracking-tight" id="display-total-score">
-                0.0 <span class="text-xs font-normal text-slate-500">/ 2.0đ</span>
+        <div id="score-card" class="hidden em-card px-5 py-4 relative overflow-hidden">
+          <div class="em-dots" style="right:120px;top:12px;--c: var(--em-orange);"></div>
+          <div class="flex items-center gap-4">
+            <div class="flex-1 min-w-0">
+              <span class="em-eyebrow">Tổng điểm</span>
+              <p class="text-sm text-slate-300 font-semibold truncate math-content" id="question-id-title">Câu 1: Giải phương trình</p>
+              <div class="font-mono font-bold text-[40px] leading-tight tracking-tight text-slate-100" id="display-total-score">
+                0.00 <span class="text-base font-medium text-slate-500">/ 0.0đ</span>
+              </div>
+              <div class="flex flex-wrap gap-2 mt-1">
+                <span id="chip-time" class="hidden em-chip em-chip-soft"><i class="fa-regular fa-clock"></i><span class="em-num"></span></span>
+                <span id="chip-cost" class="hidden em-chip em-chip-soft"></span>
               </div>
             </div>
+            <svg class="w-[88px] h-[88px] shrink-0" viewBox="0 0 100 100" aria-hidden="true">
+              <circle cx="50" cy="50" r="40" fill="none" stroke="rgb(var(--tw-slate-800))" stroke-width="12"/>
+              <circle id="score-ring-arc" cx="50" cy="50" r="40" fill="none" stroke="var(--em-green)" stroke-width="12" stroke-linecap="round" stroke-dasharray="251.3" stroke-dashoffset="251.3" transform="rotate(-90 50 50)" style="transition: stroke-dashoffset .4s ease;"/>
+              <text id="score-ring-pct" x="50" y="57" text-anchor="middle" font-family="Be Vietnam Pro, sans-serif" font-weight="800" font-size="19" fill="var(--em-ink)">0%</text>
+            </svg>
           </div>
 
           <!-- Error Propagation Alert Banner -->
-          <div id="error-prop-banner" class="hidden mt-3 bg-purple-950/60 border border-purple-800/80 text-purple-300 p-3 rounded-lg text-xs leading-relaxed">
-            <div class="font-bold flex items-center gap-1.5 text-purple-200 mb-0.5">
-              <i class="fa-solid fa-bolt-lightning text-amber-400"></i> PHÁT HIỆN LỖI LAN TRUYỀN (ERROR PROPAGATION)
+          <div id="error-prop-banner" class="hidden mt-3 bg-violet-950 border border-violet-800 text-violet-300 p-3 rounded-xl text-xs leading-relaxed">
+            <div class="font-bold flex items-center gap-1.5 text-violet-200 mb-0.5">
+              <i class="fa-solid fa-bolt-lightning text-amber-400"></i> Phát hiện lỗi lan truyền (error propagation)
             </div>
-            <p class="text-[11px] text-purple-300/90" id="error-prop-text">
+            <p class="text-[11px] text-violet-300" id="error-prop-text">
               Học sinh tính toán sai ở bước biến đổi nhưng bước sau vẫn vận dụng đúng phương pháp. Hệ thống đã tự động bảo lưu điểm phương pháp!
             </p>
           </div>
 
           <!-- SymPy Math Verification Banner -->
-          <div id="sympy-banner" class="hidden mt-2.5 p-2.5 rounded-lg text-[11px] border"></div>
-
-          <!-- Performance & Token Telemetry Panel -->
-          <div id="telemetry-panel" class="hidden mt-3 bg-slate-900/90 border border-slate-700/80 rounded-lg p-3 text-[11px] font-mono space-y-2">
-            <div class="flex items-center justify-between border-b border-slate-800 pb-1.5">
-              <span class="text-indigo-300 font-bold flex items-center gap-1.5">
-                <i class="fa-solid fa-gauge-high text-indigo-400"></i> ĐO HIỆU NĂNG & TOKENS
-              </span>
-              <span id="tel-cost" class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold">~0đ</span>
-            </div>
-            <div class="grid grid-cols-5 gap-1.5 text-center">
-              <div class="bg-slate-800/80 rounded p-1.5 border border-slate-700/60">
-                <div class="text-[9px] text-slate-400 uppercase">Tổng TG</div>
-                <div id="tel-total-s" class="text-xs font-bold text-amber-300">0.00s</div>
-              </div>
-              <div class="bg-slate-800/80 rounded p-1.5 border border-slate-700/60">
-                <div class="text-[9px] text-slate-400 uppercase">Xử lý ảnh</div>
-                <div id="tel-pre-ms" class="text-[11px] font-semibold text-slate-200">0ms</div>
-              </div>
-              <div class="bg-slate-800/80 rounded p-1.5 border border-slate-700/60">
-                <div class="text-[9px] text-slate-400 uppercase">Agent 1 OCR</div>
-                <div id="tel-ocr-s" class="text-[11px] font-semibold text-sky-300">0.00s</div>
-              </div>
-              <div class="bg-slate-800/80 rounded p-1.5 border border-slate-700/60">
-                <div class="text-[9px] text-slate-400 uppercase">SymPy</div>
-                <div id="tel-sympy-ms" class="text-[11px] font-semibold text-emerald-300">0ms</div>
-              </div>
-              <div class="bg-slate-800/80 rounded p-1.5 border border-slate-700/60">
-                <div class="text-[9px] text-slate-400 uppercase">Agent 2 Chấm</div>
-                <div id="tel-grade-s" class="text-[11px] font-semibold text-violet-300">0.00s</div>
-              </div>
-            </div>
-            <div class="grid grid-cols-2 gap-2 text-[10px] text-slate-300 bg-slate-950/60 rounded p-2 border border-slate-800">
-              <div>
-                <div class="text-slate-400">Agent 1 OCR (<span id="tel-ocr-model" class="text-sky-300">—</span>)</div>
-                <div id="tel-ocr-tokens">In: 0 · Out: 0 · Think: 0</div>
-              </div>
-              <div>
-                <div class="text-slate-400">Agent 2 Chấm (<span id="tel-grade-model" class="text-violet-300">—</span>)</div>
-                <div id="tel-grade-tokens">In: 0 · Out: 0 · Think: 0</div>
-              </div>
-            </div>
-            <div class="flex items-center justify-between text-[10px] text-slate-400">
-              <span id="tel-total-tokens" class="text-slate-200 font-semibold">Tổng: 0 tokens</span>
-              <span id="tel-cost-usd">$0.000000 USD</span>
-            </div>
-          </div>
-
-          <!-- Folder Reassembly Report Banner -->
-          <div id="reassembly-banner" class="hidden mt-3 bg-sky-950/50 border border-sky-700/60 rounded-lg p-3 text-[11px] text-sky-200 space-y-1.5">
-            <div class="font-bold flex items-center justify-between text-sky-300">
-              <span><i class="fa-solid fa-arrow-down-1-9 mr-1.5"></i> TỰ ĐỘNG SẮP XẾP & GHÉP CÂU TỪ FOLDER</span>
-              <span id="reassembly-badge" class="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/20 border border-sky-500/40 font-mono">0 ảnh</span>
-            </div>
-            <p id="reassembly-summary" class="text-[11px] text-sky-200/90"></p>
-            <div id="reassembly-chips" class="flex flex-wrap gap-1.5 pt-1"></div>
-            <div id="reassembly-output-row" class="hidden pt-2 mt-1 border-t border-sky-800/60 flex items-center justify-between gap-2">
-              <div class="min-w-0">
-                <div class="text-[10px] text-slate-400">📂 Folder đầu ra đã sắp xếp trên máy:</div>
-                <div id="reassembly-output-path" class="text-[10px] font-mono text-emerald-300 truncate"></div>
-              </div>
-              <a id="btn-download-sorted-zip" href="#" class="shrink-0 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold flex items-center gap-1 shadow">
-                <i class="fa-solid fa-file-zipper"></i> Tải Folder (.zip)
-              </a>
-            </div>
-          </div>
+          <div id="sympy-banner" class="hidden mt-2.5 p-2.5 rounded-xl text-[11px]"></div>
         </div>
 
-        <!-- 3 Verification Workspace Tabs -->
-        <div class="grid grid-cols-3 gap-1.5 mb-4 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
-          <button id="rtab-btn-verify" onclick="switchRightTab('verify')" class="py-2 px-2 rounded-lg text-[11px] font-bold bg-indigo-600 text-white transition flex items-center justify-center gap-1">
-            <i class="fa-solid fa-eye"></i> <span>Đối soát Ảnh↔Chữ</span>
-          </button>
-          <button id="rtab-btn-score" onclick="switchRightTab('score')" class="py-2 px-2 rounded-lg text-[11px] font-semibold text-slate-400 hover:text-white transition flex items-center justify-center gap-1">
-            <i class="fa-solid fa-list-check"></i> <span>Điểm từng Câu</span>
-          </button>
-          <button id="rtab-btn-matrix" onclick="switchRightTab('matrix')" class="py-2 px-2 rounded-lg text-[11px] font-semibold text-slate-400 hover:text-white transition flex items-center justify-center gap-1">
-            <i class="fa-solid fa-table-cells"></i> <span>Ma trận & Đo</span>
-          </button>
+        <!-- Thanh chú ý: chỗ thầy cô cần quyết (computeAttention) -->
+        <div id="attention-bar" class="hidden em-highlight em-tilt -ml-3 mr-2.5 relative z-10">
+          <span class="em-ico sm"><i class="fa-solid fa-hand-point-right"></i></span>
+          <div class="min-w-0 flex-1">
+            <div id="attention-title" class="truncate">—</div>
+            <small id="attention-detail" class="truncate">—</small>
+          </div>
+          <span id="attention-more" class="hidden text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0" style="background: rgba(0,0,0,.12);"></span>
+          <button id="attention-btn" onclick="focusAttention()" class="em-btn em-btn-sm shrink-0" style="background: rgba(0,0,0,.78); color: #fff;">Xem câu</button>
         </div>
 
-        <!-- TAB 1: 1-to-1 Image <-> Extracted Text Verification -->
-        <div id="rtab-verify" class="space-y-3 mb-4">
-          <div id="duplicate-q-warning" class="hidden bg-amber-950/50 border border-amber-600/60 rounded-xl p-3 text-[11px] text-amber-200 leading-relaxed"></div>
-
-          <div class="flex items-center justify-between gap-2 bg-slate-800/60 border border-slate-700/80 rounded-xl px-3 py-2">
-            <div class="text-[11px] text-slate-300 font-semibold truncate" id="verify-scope-label">
-              <i class="fa-solid fa-magnifying-glass text-sky-400 mr-1"></i> Chưa có ảnh nào được chọn
-            </div>
-            <div class="flex items-center gap-1.5 shrink-0">
-              <button id="btn-toggle-scope" onclick="toggleVerifyScope()" class="text-[10px] px-2 py-1 rounded bg-sky-600/30 hover:bg-sky-600/50 text-sky-200 border border-sky-500/40 font-semibold">
-                Chỉ xem Ảnh đang chọn
-              </button>
-              <button id="btn-toggle-raw" onclick="toggleRawTextMode()" class="text-[10px] px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 border border-slate-600 font-mono">
-                Raw: Tắt
-              </button>
-            </div>
+        <div id="review-workspace" class="hidden space-y-4">
+          <!-- 3 Verification Workspace Tabs -->
+          <div class="em-seg">
+            <button id="rtab-btn-verify" onclick="switchRightTab('verify')" class="is-on"><i class="fa-solid fa-eye"></i> <span>Đối soát ảnh – chữ</span></button>
+            <button id="rtab-btn-score" onclick="switchRightTab('score')"><i class="fa-solid fa-list-check"></i> <span>Điểm từng câu</span></button>
+            <button id="rtab-btn-matrix" onclick="switchRightTab('matrix')"><i class="fa-solid fa-chart-simple"></i> <span>Ma trận &amp; đo</span></button>
           </div>
 
-          <div id="verify-ocr-groups" class="space-y-2.5 max-h-[520px] overflow-y-auto custom-scrollbar pr-1">
-            <div class="text-center py-8 text-xs text-slate-500 italic bg-slate-800/30 rounded-xl border border-slate-800">
-              Chấm 1 bài hoặc bấm <strong>📜 Lịch sử</strong> để mở lại bài vừa chấm và đối soát từng ảnh 1-1!
-            </div>
-          </div>
-        </div>
+          <!-- TAB 1: 1-to-1 Image <-> Extracted Text Verification -->
+          <div id="rtab-verify" class="space-y-3">
+            <div id="duplicate-q-warning" class="hidden em-highlight !text-[12px] !font-medium leading-relaxed"></div>
 
-        <!-- TAB 2: Per-Question Grading Breakdown -->
-        <div id="rtab-score" class="hidden space-y-3 mb-4">
-          <div class="space-y-3 max-h-[520px] overflow-y-auto custom-scrollbar pr-1" id="criteria-list">
-            <div class="text-center py-8 text-xs text-slate-500 italic">
-              Chưa có kết quả. Kéo thả ảnh hoặc chọn Folder bài thi để chấm.
-            </div>
-          </div>
-
-          <!-- AI Pedagogical Feedback Box -->
-          <div class="bg-slate-800/50 border border-slate-700/80 rounded-xl p-3.5">
-            <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5 flex items-center gap-1.5">
-              <i class="fa-solid fa-comment-dots text-indigo-400"></i> Nhận xét tổng hợp toàn bài:
-            </label>
-            <div class="max-h-[110px] overflow-y-auto custom-scrollbar pr-1">
-              <p class="text-xs text-slate-300 leading-relaxed italic" id="ai-feedback-box">
-                "Vui lòng tải ảnh bài thi để AI phân tích và tạo nhận xét."
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <!-- TAB 3: Verification Matrix (File <-> Question) & Full OCR Accordion -->
-        <div id="rtab-matrix" class="hidden space-y-3 mb-4">
-          <div class="bg-slate-800/50 border border-slate-700/80 rounded-xl p-3">
-            <h4 class="text-[11px] font-bold uppercase tracking-wider text-sky-300 mb-2 flex items-center justify-between">
-              <span><i class="fa-solid fa-diagram-project mr-1.5"></i> Bảng Đối Chiếu: Ảnh Gốc → AI Tách Câu</span>
-              <span id="matrix-page-count" class="text-[10px] font-mono text-slate-400">0 ảnh</span>
-            </h4>
-            <div id="page-question-matrix" class="space-y-1.5 text-[11px]">
-              <div class="text-slate-500 italic">Chưa có dữ liệu đối chiếu.</div>
-            </div>
-          </div>
-
-          <div class="bg-slate-800/40 border border-slate-700/80 rounded-xl p-3">
-            <details class="cursor-pointer">
-              <summary class="text-xs font-semibold text-slate-400 hover:text-slate-200 flex items-center justify-between">
-                <span><i class="fa-solid fa-lines-leaning mr-1.5 text-indigo-400"></i> Toàn bộ dòng OCR gộp (<span id="ocr-line-count">0</span> dòng)</span>
-                <i class="fa-solid fa-chevron-down text-[10px]"></i>
-              </summary>
-              <div id="ocr-lines-container" class="mt-2.5 space-y-1.5 max-h-[260px] overflow-y-auto custom-scrollbar text-xs font-mono text-slate-300 pr-1">
-                <div class="text-slate-500 italic text-[11px]">Chưa có dữ liệu OCR.</div>
+            <div class="flex items-center justify-between gap-2 em-card px-3 py-2.5">
+              <div class="text-xs text-slate-300 font-semibold truncate" id="verify-scope-label">
+                <i class="fa-solid fa-magnifying-glass text-sky-500 mr-1"></i> Chưa có ảnh nào được chọn
               </div>
-            </details>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <button id="btn-toggle-scope" onclick="toggleVerifyScope()" class="em-chip em-chip-blue !h-7">Chỉ xem Ảnh đang chọn</button>
+                <button id="btn-toggle-raw" onclick="toggleRawTextMode()" class="em-chip em-chip-soft !h-7 font-mono">Raw: Tắt</button>
+              </div>
+            </div>
+
+            <div id="verify-ocr-groups" class="space-y-2.5">
+              <div class="text-center py-8 text-xs text-slate-500 italic em-card">
+                Chấm 1 bài hoặc bấm <strong>Lịch sử</strong> để mở lại bài vừa chấm và đối soát từng ảnh 1-1!
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 2: Per-Question Grading Breakdown -->
+          <div id="rtab-score" class="hidden space-y-3">
+            <div class="space-y-3" id="criteria-list">
+              <div class="text-center py-8 text-xs text-slate-500 italic">
+                Chưa có kết quả. Kéo thả ảnh hoặc chọn Folder bài thi để chấm.
+              </div>
+            </div>
+
+            <!-- AI Pedagogical Feedback Box -->
+            <div class="em-card p-4">
+              <label class="em-eyebrow mb-1.5 flex items-center gap-1.5">
+                <i class="fa-solid fa-comment-dots text-indigo-500"></i> Nhận xét tổng hợp toàn bài
+              </label>
+              <div class="max-h-[140px] overflow-y-auto custom-scrollbar pr-1">
+                <p class="text-xs text-slate-300 leading-relaxed italic" id="ai-feedback-box">
+                  "Vui lòng tải ảnh bài thi để AI phân tích và tạo nhận xét."
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 3: Verification Matrix (File <-> Question), Telemetry & Full OCR Accordion -->
+          <div id="rtab-matrix" class="hidden space-y-3">
+            <!-- Performance & Token Telemetry Panel (v0.7: chuyển từ thẻ điểm vào tab Ma trận & đo) -->
+            <div id="telemetry-panel" class="hidden em-card p-4 text-[11px] font-mono space-y-2.5">
+              <div class="flex items-center justify-between">
+                <span class="em-eyebrow !font-sans flex items-center gap-1.5"><i class="fa-solid fa-gauge-high text-indigo-500"></i> Đo hiệu năng &amp; tokens</span>
+                <span id="tel-cost" class="em-chip em-chip-green !h-6">~0đ</span>
+              </div>
+              <div class="grid grid-cols-5 gap-1.5 text-center">
+                <div class="bg-slate-800 rounded-lg p-1.5"><div class="text-[9px] text-slate-500 uppercase">Tổng TG</div><div id="tel-total-s" class="text-xs font-bold text-amber-300">0.00s</div></div>
+                <div class="bg-slate-800 rounded-lg p-1.5"><div class="text-[9px] text-slate-500 uppercase">Xử lý ảnh</div><div id="tel-pre-ms" class="text-[11px] font-semibold text-slate-200">0ms</div></div>
+                <div class="bg-slate-800 rounded-lg p-1.5"><div class="text-[9px] text-slate-500 uppercase">Agent 1 OCR</div><div id="tel-ocr-s" class="text-[11px] font-semibold text-sky-300">0.00s</div></div>
+                <div class="bg-slate-800 rounded-lg p-1.5"><div class="text-[9px] text-slate-500 uppercase">SymPy</div><div id="tel-sympy-ms" class="text-[11px] font-semibold text-emerald-300">0ms</div></div>
+                <div class="bg-slate-800 rounded-lg p-1.5"><div class="text-[9px] text-slate-500 uppercase">Agent 2 Chấm</div><div id="tel-grade-s" class="text-[11px] font-semibold text-violet-300">0.00s</div></div>
+              </div>
+              <div class="grid grid-cols-2 gap-2 text-[10px] text-slate-300 bg-slate-800 rounded-lg p-2">
+                <div><div class="text-slate-500">Agent 1 OCR (<span id="tel-ocr-model" class="text-sky-300">—</span>)</div><div id="tel-ocr-tokens">In: 0 · Out: 0 · Think: 0</div></div>
+                <div><div class="text-slate-500">Agent 2 Chấm (<span id="tel-grade-model" class="text-violet-300">—</span>)</div><div id="tel-grade-tokens">In: 0 · Out: 0 · Think: 0</div></div>
+              </div>
+              <div class="flex items-center justify-between text-[10px] text-slate-500">
+                <span id="tel-total-tokens" class="text-slate-200 font-semibold">Tổng: 0 tokens</span>
+                <span id="tel-cost-usd">$0.000000 USD</span>
+              </div>
+            </div>
+
+            <!-- Folder Reassembly Report Banner -->
+            <div id="reassembly-banner" class="hidden em-card p-4 text-[11px] text-slate-300 space-y-1.5">
+              <div class="font-bold flex items-center justify-between text-sky-300">
+                <span class="em-eyebrow !text-sky-300"><i class="fa-solid fa-arrow-down-1-9 mr-1.5"></i> Tự động sắp xếp &amp; ghép câu từ folder</span>
+                <span id="reassembly-badge" class="em-chip em-chip-cyan !h-6 font-mono">0 ảnh</span>
+              </div>
+              <p id="reassembly-summary" class="text-[11px] text-slate-300"></p>
+              <div id="reassembly-chips" class="flex flex-wrap gap-1.5 pt-1"></div>
+              <div id="reassembly-output-row" class="hidden pt-2 mt-1 border-t border-slate-700 flex items-center justify-between gap-2">
+                <div class="min-w-0">
+                  <div class="text-[10px] text-slate-500">📂 Folder đầu ra đã sắp xếp trên máy:</div>
+                  <div id="reassembly-output-path" class="text-[10px] font-mono text-emerald-300 truncate"></div>
+                </div>
+                <a id="btn-download-sorted-zip" href="#" class="shrink-0 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold flex items-center gap-1">
+                  <i class="fa-solid fa-file-zipper"></i> Tải Folder (.zip)
+                </a>
+              </div>
+            </div>
+
+            <div class="em-card p-4">
+              <h4 class="em-eyebrow !text-sky-300 mb-2 flex items-center justify-between">
+                <span><i class="fa-solid fa-diagram-project mr-1.5"></i> Bảng đối chiếu: ảnh gốc → AI tách câu</span>
+                <span id="matrix-page-count" class="text-[10px] font-mono text-slate-500 normal-case tracking-normal">0 ảnh</span>
+              </h4>
+              <div id="page-question-matrix" class="space-y-1.5 text-[11px]">
+                <div class="text-slate-500 italic">Chưa có dữ liệu đối chiếu.</div>
+              </div>
+            </div>
+
+            <div class="em-card p-4">
+              <details class="cursor-pointer">
+                <summary class="text-xs font-semibold text-slate-300 hover:text-slate-100 flex items-center justify-between">
+                  <span><i class="fa-solid fa-lines-leaning mr-1.5 text-indigo-500"></i> Toàn bộ dòng OCR gộp (<span id="ocr-line-count">0</span> dòng)</span>
+                  <i class="fa-solid fa-chevron-down text-[10px]"></i>
+                </summary>
+                <div id="ocr-lines-container" class="mt-2.5 space-y-1.5 max-h-[260px] overflow-y-auto custom-scrollbar text-xs font-mono text-slate-300 pr-1">
+                  <div class="text-slate-500 italic text-[11px]">Chưa có dữ liệu OCR.</div>
+                </div>
+              </details>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Quick Score Adjust Bottom Bar -->
-      <div class="bg-slate-800/90 border-t border-slate-700/80 px-6 py-3 flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <span class="text-xs text-slate-400 font-medium">Sửa nhanh:</span>
-          <button onclick="quickAdjustScore(-0.25)" class="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded border border-slate-600 font-mono text-xs font-bold transition">-0.25</button>
-          <button onclick="quickAdjustScore(+0.25)" class="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded border border-slate-600 font-mono text-xs font-bold transition">+0.25</button>
-          <button onclick="quickAdjustScore(+0.5)" class="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded border border-slate-600 font-mono text-xs font-bold transition">+0.50</button>
-        </div>
-        <div class="text-xs text-slate-400">
-          Phím tắt: <kbd class="px-1.5 py-0.5 bg-slate-700 border border-slate-600 rounded text-slate-300 font-mono">Space</kbd> Duyệt
-        </div>
+      <!-- Quick Score Adjust + Hành động (đáy panel phải) -->
+      <div id="action-bar" class="hidden em-card px-4 py-3 flex items-center gap-2 shrink-0">
+        <span class="text-xs text-slate-500 font-semibold whitespace-nowrap mr-0.5">Sửa nhanh</span>
+        <button onclick="quickAdjustScore(-0.25)" class="em-btn em-btn-ghost em-btn-sm em-num">−0.25</button>
+        <button onclick="quickAdjustScore(+0.25)" class="em-btn em-btn-ghost em-btn-sm em-num">+0.25</button>
+        <button onclick="quickAdjustScore(+0.5)" class="em-btn em-btn-ghost em-btn-sm em-num">+0.50</button>
+        <div class="flex-1"></div>
+        <button onclick="openOverrideModal()" id="btn-override" class="em-btn em-btn-outline !px-3"><i class="fa-solid fa-pen-to-square"></i><span>Sửa điểm</span><span class="em-kbd">O</span></button>
+        <button onclick="approveCurrentSubmission()" id="btn-approve" class="em-btn em-btn-success !px-3"><i class="fa-solid fa-check-double"></i><span>Duyệt bài</span><span class="em-kbd">A</span></button>
       </div>
     </section>
   </main>
@@ -454,10 +419,10 @@
   <div id="history-modal" class="hidden fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
     <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-xl w-full p-6 shadow-2xl">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+        <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2">
           <i class="fa-solid fa-clock-rotate-left text-indigo-400"></i> Lịch sử bài đã chấm (SQLite — bấm để mở đối soát lại)
         </h3>
-        <button onclick="closeHistoryModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+        <button onclick="closeHistoryModal()" class="text-slate-400 hover:text-slate-100"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div id="history-modal-list" class="space-y-2 max-h-[420px] overflow-y-auto custom-scrollbar pr-1 text-xs">
         <div class="text-slate-400 text-center py-6">Đang tải danh sách...</div>
@@ -469,10 +434,10 @@
   <div id="rubric-modal" class="hidden fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
     <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-2xl w-full p-6 shadow-2xl max-h-[88vh] flex flex-col">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+        <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2">
           <i class="fa-solid fa-book-open text-teal-400"></i> Tạo Đề thi & Biểu điểm chuẩn cho cả lớp (1 lần duy nhất)
         </h3>
-        <button onclick="closeRubricModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+        <button onclick="closeRubricModal()" class="text-slate-400 hover:text-slate-100"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <p class="text-[11px] text-slate-400 mb-3">
         Upload ảnh/PDF tờ Đề thi (kèm Đáp án nếu có) hoặc dán văn bản Đề bài. AI sẽ tự giải & lập Biểu điểm cố định để chấm đồng nhất cả lớp — không còn đoán nhầm đề hay chia lệch thang điểm!
@@ -482,7 +447,7 @@
         <button id="rubtab-btn-files" onclick="switchRubricTab('files')" class="py-1.5 rounded-lg text-xs font-bold bg-teal-600 text-white transition">
           <i class="fa-solid fa-file-image mr-1"></i> Upload Ảnh / PDF Đề thi
         </button>
-        <button id="rubtab-btn-text" onclick="switchRubricTab('text')" class="py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition">
+        <button id="rubtab-btn-text" onclick="switchRubricTab('text')" class="py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-100 transition">
           <i class="fa-solid fa-align-left mr-1"></i> Dán Văn bản Đề thi
         </button>
       </div>
@@ -491,27 +456,27 @@
         <div class="grid grid-cols-12 gap-2">
           <div class="col-span-6">
             <label class="block text-[11px] text-slate-300 mb-1">Tên bài kiểm tra:</label>
-            <input type="text" id="rubric-title-input" placeholder="VD: Kiểm tra Giữa kỳ 1 - Toán 7" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white" />
+            <input type="text" id="rubric-title-input" placeholder="VD: Kiểm tra Giữa kỳ 1 - Toán 7" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-100" />
           </div>
           <div class="col-span-3">
             <label class="block text-[11px] text-slate-300 mb-1">Khối lớp:</label>
-            <input type="number" id="rubric-grade-input" value="7" min="1" max="12" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white" />
+            <input type="number" id="rubric-grade-input" value="7" min="1" max="12" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-100" />
           </div>
           <div class="col-span-3">
             <label class="block text-[11px] text-slate-300 mb-1">Tổng điểm:</label>
-            <input type="number" id="rubric-total-input" value="10" step="0.5" min="1" max="100" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white" />
+            <input type="number" id="rubric-total-input" value="10" step="0.5" min="1" max="100" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-100" />
           </div>
         </div>
 
         <div id="rubtab-files" class="space-y-2">
           <label class="block text-xs font-medium text-slate-300">Chọn 1 hoặc nhiều ảnh / file PDF Đề thi (và Đáp án):</label>
           <input type="file" id="rubric-files-input" accept="image/*,application/pdf" multiple class="w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-teal-600 file:text-white hover:file:bg-teal-500 cursor-pointer" />
-          <textarea id="rubric-extra-notes" rows="2" placeholder="Ghi chú thêm cho AI nếu cần (VD: Câu 2a 1đ, 2b 1đ, 2c 1.5đ, Câu 3 3đ, Câu 4 3.5đ)..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"></textarea>
+          <textarea id="rubric-extra-notes" rows="2" placeholder="Ghi chú thêm cho AI nếu cần (VD: Câu 2a 1đ, 2b 1đ, 2c 1.5đ, Câu 3 3đ, Câu 4 3.5đ)..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-100"></textarea>
         </div>
 
         <div id="rubtab-text" class="hidden space-y-2">
           <label class="block text-xs font-medium text-slate-300">Dán toàn bộ đề thi (mỗi câu một dòng):</label>
-          <textarea id="rubric-text-input" rows="5" placeholder="Câu 2a: x - 3/4 = 2/5&#10;Câu 2b: 1/4 x - 3/8 = -2/3&#10;Câu 2c: (1/2 - x)^2 - 24/25 = 1&#10;Câu 3: Mua 2 áo 250.000đ..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white font-mono"></textarea>
+          <textarea id="rubric-text-input" rows="5" placeholder="Câu 2a: x - 3/4 = 2/5&#10;Câu 2b: 1/4 x - 3/8 = -2/3&#10;Câu 2c: (1/2 - x)^2 - 24/25 = 1&#10;Câu 3: Mua 2 áo 250.000đ..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-slate-100 font-mono"></textarea>
         </div>
 
         <div id="rubric-error" class="hidden text-xs text-rose-400 bg-rose-950/40 border border-rose-800/60 rounded-lg p-2"></div>
@@ -543,10 +508,10 @@
   <div id="folder-modal" class="hidden fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
     <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-lg w-full p-6 shadow-2xl">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+        <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2">
           <i class="fa-solid fa-folder-open text-sky-400"></i> Chấm cả Folder bài làm (Tự sắp xếp câu lộn xộn)
         </h3>
-        <button onclick="closeFolderModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+        <button onclick="closeFolderModal()" class="text-slate-400 hover:text-slate-100"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <p class="text-[11px] text-slate-400 mb-4">
         AI sẽ OCR <strong>song song</strong> toàn bộ ảnh trong folder, tự nhận diện số câu (<code class="text-sky-300">Câu 1, Câu 2, Câu 3...</code>), sắp xếp lại đúng thứ tự, ghép mảnh cùng câu trải nhiều ảnh rồi chấm 1 bảng điểm hoàn chỉnh.
@@ -557,7 +522,7 @@
         <button id="ftab-btn-upload" onclick="switchFolderTab('upload')" class="py-1.5 rounded-lg text-xs font-bold bg-sky-600 text-white transition">
           <i class="fa-solid fa-upload mr-1"></i> Chọn Folder từ máy
         </button>
-        <button id="ftab-btn-path" onclick="switchFolderTab('path')" class="py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition">
+        <button id="ftab-btn-path" onclick="switchFolderTab('path')" class="py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-100 transition">
           <i class="fa-solid fa-terminal mr-1"></i> Nhập đường dẫn local
         </button>
       </div>
@@ -572,11 +537,11 @@
         </div>
         <div id="folder-student-name-wrap" class="hidden">
           <label class="block text-xs font-medium text-slate-300 mb-1">Tên học sinh (để trống AI tự đọc từ đầu giấy):</label>
-          <input type="text" id="folder-student-name" placeholder="Ví dụ: Nguyễn Văn An (hoặc để trống)" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500" />
+          <input type="text" id="folder-student-name" placeholder="Ví dụ: Nguyễn Văn An (hoặc để trống)" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-sky-500" />
         </div>
         <div>
           <label class="block text-xs font-medium text-slate-300 mb-1">Chế độ chấm / Barem:</label>
-          <select id="folder-exam-id" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500">
+          <select id="folder-exam-id" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-sky-500">
             <option value="AUTO" selected>🎯 AI Auto — Tự nhận đề & chấm từng câu theo thứ tự (Khuyên dùng)</option>
             <option value="TOAN9_01">TOAN9_01 — PT chứa ẩn ở mẫu</option>
           </select>
@@ -592,7 +557,7 @@
                ondrop="handleFolderDrop(event)"
                class="cursor-pointer border-2 border-dashed border-sky-500/50 hover:border-sky-400 bg-slate-900/90 hover:bg-sky-950/30 rounded-xl p-5 text-center transition">
             <i class="fa-solid fa-folder-plus text-3xl text-sky-400 mb-2 block"></i>
-            <p class="text-xs font-bold text-white">Bấm để mở hộp thoại chọn THƯ MỤC (Folder)</p>
+            <p class="text-xs font-bold text-slate-100">Bấm để mở hộp thoại chọn THƯ MỤC (Folder)</p>
             <p class="text-[11px] text-slate-400 mt-1">Hoặc kéo thả nguyên cả Folder từ Windows Explorer vào khung này</p>
           </div>
           <!-- Fallback ẩn (không đặt accept để trình duyệt không bị chuyển nhầm về Choose File) -->
@@ -603,7 +568,7 @@
         <!-- Tab 2: Local Path -->
         <div id="ftab-path" class="hidden">
           <label class="block text-xs font-medium text-slate-300 mb-1">Đường dẫn thư mục trên máy Windows:</label>
-          <input type="text" id="folder-path-input" placeholder="Ví dụ: D:\bai_thi\hs_an" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-sky-500" />
+          <input type="text" id="folder-path-input" placeholder="Ví dụ: D:\bai_thi\hs_an" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-slate-100 focus:outline-none focus:border-sky-500" />
           <p class="text-[10px] text-slate-500 mt-1">Server sẽ đọc trực tiếp toàn bộ ảnh (.jpg, .png, .webp) trong thư mục này.</p>
         </div>
 
@@ -623,21 +588,21 @@
   <div id="upload-modal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
     <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+        <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2">
           <i class="fa-solid fa-cloud-arrow-up text-indigo-400"></i> Tải bài thi học sinh
         </h3>
-        <button onclick="closeUploadModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+        <button onclick="closeUploadModal()" class="text-slate-400 hover:text-slate-100"><i class="fa-solid fa-xmark"></i></button>
       </div>
 
       <div class="space-y-4">
         <div>
           <label class="block text-xs font-medium text-slate-300 mb-1">Tên học sinh:</label>
-          <input type="text" id="input-student-name" value="Nguyễn Văn An" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500" />
+          <input type="text" id="input-student-name" value="Nguyễn Văn An" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500" />
         </div>
 
         <div>
           <label class="block text-xs font-medium text-slate-300 mb-1">Chế độ chấm / Barem:</label>
-          <select id="input-exam-id" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
+          <select id="input-exam-id" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500">
             <option value="AUTO" selected>🎯 Tự động nhận diện Đề bài từ ảnh (Khuyên dùng - Không bắt điều kiện thừa)</option>
             <option value="TOAN9_01">Kiểm tra 15p: Phương trình chứa ẩn ở mẫu (TOAN9_01)</option>
           </select>
@@ -664,10 +629,10 @@
   <div id="api-key-modal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
     <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+        <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2">
           <i class="fa-solid fa-key text-amber-400"></i> Cấu hình AI API Key (OpenAI / Gemini)
         </h3>
-        <button onclick="closeApiKeyModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+        <button onclick="closeApiKeyModal()" class="text-slate-400 hover:text-slate-100"><i class="fa-solid fa-xmark"></i></button>
       </div>
 
       <div class="space-y-4 text-xs">
@@ -677,7 +642,7 @@
 
         <div>
           <label class="block font-medium text-slate-300 mb-1">Dán API Key của bạn (OpenAI sk-... hoặc Gemini AIza...):</label>
-          <input type="password" id="input-api-key" placeholder="sk-... hoặc AIza..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500" />
+          <input type="password" id="input-api-key" placeholder="sk-... hoặc AIza..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 font-mono focus:outline-none focus:border-indigo-500" />
           <p class="text-[11px] text-slate-400 mt-1">
             Hỗ trợ tự động nhận diện OpenAI và Google Gemini.
           </p>
@@ -699,10 +664,10 @@
   <div id="override-modal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
     <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+        <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2">
           <i class="fa-solid fa-pen-to-square text-amber-400"></i> Giáo viên điều chỉnh điểm số (Override)
         </h3>
-        <button onclick="closeOverrideModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+        <button onclick="closeOverrideModal()" class="text-slate-400 hover:text-slate-100"><i class="fa-solid fa-xmark"></i></button>
       </div>
 
       <div class="space-y-4">
@@ -713,12 +678,12 @@
 
         <div>
           <label class="block text-xs font-medium text-slate-300 mb-1">Điểm số mới của giáo viên:</label>
-          <input type="number" step="0.25" min="0" max="10.0" id="input-override-score" value="10.0" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono font-bold focus:outline-none focus:border-amber-500" />
+          <input type="number" step="0.25" min="0" max="10.0" id="input-override-score" value="10.0" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 font-mono font-bold focus:outline-none focus:border-amber-500" />
         </div>
 
         <div>
           <label class="block text-xs font-medium text-slate-300 mb-1">Ghi chú của giáo viên (Bắt buộc khi sửa):</label>
-          <textarea id="input-override-note" rows="3" placeholder="Ví dụ: Cộng 0.25đ khuyến khích chữ đẹp và phương pháp sáng tạo..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"></textarea>
+          <textarea id="input-override-note" rows="3" placeholder="Ví dụ: Cộng 0.25đ khuyến khích chữ đẹp và phương pháp sáng tạo..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-amber-500"></textarea>
         </div>
 
         <div class="flex justify-end gap-2 pt-2">
@@ -880,10 +845,15 @@
     }
 
     // Dark Mode Toggle
+    // v0.7: Sáng = mặc định (Floating Cards), Tối = bảng màu v0.6 — xem static/theme.js
     function toggleDarkMode() {
-      const isDark = document.documentElement.classList.toggle('dark');
-      document.getElementById('dark-icon').className = isDark ? 'fa-solid fa-moon' : 'fa-solid fa-sun text-amber-400';
-      localStorage.setItem('theme', isDark ? 'dark' : 'light');
+      const isDark = window.emSetTheme(window.emIsDark() ? 'light' : 'dark');
+      syncDarkIcon(isDark);
+    }
+
+    function syncDarkIcon(isDark) {
+      const icon = document.getElementById('dark-icon');
+      if (icon) icon.className = isDark ? 'fa-solid fa-sun text-amber-400' : 'fa-solid fa-moon';
     }
 
     function openUploadModal() {
@@ -964,15 +934,198 @@
       const maxPts = currentSubmission.total_points || 10.0;
       let newScore = Math.max(0, Math.min(maxPts, (currentSubmission.final_score !== null ? currentSubmission.final_score : currentSubmission.ai_total_score) + delta));
       currentSubmission.final_score = parseFloat(newScore.toFixed(2));
-      document.getElementById('display-total-score').innerHTML = `${currentSubmission.final_score.toFixed(2)} <span class="text-xs font-normal text-slate-500">/ ${maxPts.toFixed(1)}đ</span>`;
+      setTotalScoreDisplay(currentSubmission.final_score, maxPts);
+      renderAttentionBar(currentSubmission);
     }
+
+    // Số tổng điểm + vòng tiến độ (vượt barem ⇒ magenta)
+    function setTotalScoreDisplay(score, maxPts) {
+      const s = Number(score) || 0;
+      const m = Number(maxPts) || 0;
+      const over = m > 0 && s > m + 0.01;
+      const el = document.getElementById('display-total-score');
+      el.innerHTML = `<span class="${over ? 'text-rose-300' : ''}">${s.toFixed(2)}</span> <span class="text-base font-medium text-slate-500">/ ${m.toFixed(1)}đ</span>`;
+      const pct = m > 0 ? Math.max(0, s / m) : 0;
+      const arc = document.getElementById('score-ring-arc');
+      if (arc) {
+        arc.style.strokeDashoffset = String(251.3 * (1 - Math.min(1, pct)));
+        arc.setAttribute('stroke', over ? 'var(--em-magenta)' : (pct >= 0.999 ? 'var(--em-green)' : (pct >= 0.5 ? 'rgb(var(--tw-sky-500))' : 'var(--em-orange)')));
+      }
+      const pctEl = document.getElementById('score-ring-pct');
+      if (pctEl) pctEl.textContent = `${Math.round(pct * 100)}%`;
+    }
+
+    // Nhãn trạng thái thân thiện + màu theo nghĩa
+    const STATUS_LABELS = {
+      GRADED_DRAFT: ['Chờ thầy cô duyệt', 'text-amber-300'],
+      APPROVED: ['Đã duyệt', 'text-emerald-300'],
+      NEEDS_REVIEW: ['Cần xem lại', 'text-amber-300'],
+      FAILED: ['Lỗi chấm', 'text-rose-300'],
+    };
+
+    function studentInitials(name) {
+      const words = String(name || '').replace(/\(.*?\)/g, '').split(/[\s.]+/).filter(Boolean);
+      if (!words.length) return '?';
+      const first = words[0][0] || '';
+      const last = words.length > 1 ? words[words.length - 1][0] : (words[0][1] || '');
+      return (first + last).toUpperCase();
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    }
+
+    // =========================================================================
+    // v0.7 THANH CHÚ Ý — chỗ thầy cô cần quyết (01-CONTRACTS §3)
+    // =========================================================================
+    function computeAttention(data) {
+      const EPS = 0.01;
+      const out = [];
+      if (!data) return out;
+      const total = Number(data.final_score !== null && data.final_score !== undefined ? data.final_score : data.ai_total_score) || 0;
+      const maxTotal = Number(data.total_points) || 0;
+      if (maxTotal > 0 && total > maxTotal + EPS) {
+        out.push({ level: 'error', qid: null, title: `Tổng điểm vượt barem: ${total.toFixed(2)} / ${maxTotal.toFixed(1)}đ`, detail: 'Kiểm tra barem hoặc điểm từng câu trước khi duyệt' });
+      }
+      const qrs = data.question_results || [];
+      qrs.forEach((qr) => {
+        const earned = Number(qr.suggested_score ?? qr.earned_points ?? 0);
+        const max = Number(qr.max_score ?? qr.total_points ?? 0);
+        if (max > 0 && earned > max + EPS) {
+          out.push({ level: 'error', qid: qr.question_id, title: `${qr.question_id} vượt điểm tối đa`, detail: `AI cho ${earned.toFixed(2)}đ trên tối đa ${max.toFixed(2)}đ` });
+        }
+      });
+      qrs.forEach((qr) => {
+        const crit = qr.criteria_evaluations || qr.criteria_evaluation || [];
+        if (!crit.length) return;
+        const earned = Number(qr.suggested_score ?? qr.earned_points ?? 0);
+        const sum = crit.reduce((acc, c) => acc + Number(c.earned_points ?? c.score ?? 0), 0);
+        if (Math.abs(sum - earned) > EPS) {
+          const failed = crit.find((c) => c.status !== 'passed' || Number(c.earned_points ?? c.score ?? 0) + EPS < Number(c.max_points ?? c.max_score ?? 0));
+          out.push({ level: 'warn', qid: qr.question_id, title: `${qr.question_id}: tiêu chí ${sum.toFixed(2)}đ nhưng câu ghi ${earned.toFixed(2)}đ`, detail: failed && failed.feedback ? String(failed.feedback) : 'Điểm câu lệch tổng điểm tiêu chí · thầy cô xác nhận' });
+        }
+      });
+      qrs.forEach((qr) => {
+        if (qr.needs_review) {
+          const reason = (qr.review_reasons && qr.review_reasons[0]) || 'AI chưa chắc chắn ở câu này';
+          out.push({ level: 'warn', qid: qr.question_id, title: `${qr.question_id} cần thầy cô xem`, detail: String(reason) });
+        }
+      });
+      return out;
+    }
+
+    let currentAttention = [];
+    function renderAttentionBar(data) {
+      const bar = document.getElementById('attention-bar');
+      if (!bar) return;
+      currentAttention = computeAttention(data);
+      if (!currentAttention.length) { bar.classList.add('hidden'); return; }
+      const top = currentAttention[0];
+      bar.classList.toggle('is-error', top.level === 'error');
+      document.getElementById('attention-title').textContent = top.title;
+      const detail = document.getElementById('attention-detail');
+      detail.textContent = top.detail.replace(/\$/g, '');
+      detail.title = top.detail;
+      const more = document.getElementById('attention-more');
+      more.textContent = `+${currentAttention.length - 1} mục`;
+      more.classList.toggle('hidden', currentAttention.length < 2);
+      document.getElementById('attention-btn').textContent = top.qid ? `Xem ${top.qid}` : 'Xem điểm';
+      bar.classList.remove('hidden');
+    }
+
+    function focusAttention() {
+      const top = currentAttention[0];
+      switchRightTab('score');
+      if (!top || !top.qid) return;
+      const card = Array.from(document.querySelectorAll('#criteria-list [data-qid]')).find((el) => el.dataset.qid === top.qid);
+      if (card) {
+        // Chỉ cuộn cột phải (scrollIntoView sẽ cuộn cả <main>/<body> dù overflow-hidden)
+        const box = document.getElementById('right-scroll');
+        const top = card.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 16;
+        box.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+        card.style.boxShadow = 'var(--em-shadow-card), inset 0 0 0 2px var(--em-orange)';
+      }
+    }
+
+    // =========================================================================
+    // v0.7 TRANG CHỦ — bài vừa chấm ở panel phải (ẩn khi đã mở 1 bài)
+    // =========================================================================
+    async function loadHomeRecent() {
+      const box = document.getElementById('home-recent-list');
+      if (!box) return;
+      try {
+        const res = await fetch('/api/v1/submissions?limit=25');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const list = await res.json();
+        const unnamed = list.filter((s) => /chưa rõ tên/i.test(String(s.student_name || ''))).length;
+        document.getElementById('home-unnamed-count').textContent = unnamed;
+        document.getElementById('home-unnamed-bar').classList.toggle('hidden', unnamed === 0);
+        if (!list.length) {
+          box.innerHTML = '<div class="text-center py-6 text-xs text-slate-500">Chưa có bài nào. Bấm <b>Chấm bài mới</b> để bắt đầu.</div>';
+          return;
+        }
+        box.innerHTML = '';
+        list.slice(0, 6).forEach((s) => {
+          const score = Number(s.final_score !== null && s.final_score !== undefined ? s.final_score : s.ai_total_score) || 0;
+          const max = Number(s.total_points || 10);
+          const over = score > max + 0.01;
+          const approved = s.status === 'APPROVED';
+          const isUnnamed = /chưa rõ tên/i.test(String(s.student_name || ''));
+          const ring = over ? 'var(--em-magenta)' : (isUnnamed ? 'rgb(var(--tw-slate-500))' : (approved ? 'var(--em-green)' : 'var(--em-orange)'));
+          const chip = over ? '<span class="em-chip em-chip-magenta !h-[22px] !text-[11px]">Điểm vượt barem</span>'
+            : (approved ? '<span class="em-chip em-chip-green !h-[22px] !text-[11px]">Đã duyệt</span>' : '<span class="em-chip em-chip-orange !h-[22px] !text-[11px]">Chờ duyệt</span>');
+          const row = document.createElement('button');
+          row.className = 'em-q-row';
+          row.onclick = () => { renderGradingRecord(s); switchRightTab('verify'); };
+          row.innerHTML = `
+            <span class="em-avatar !w-[38px] !h-[38px] !text-xs" style="--ring:${ring}">${isUnnamed ? '<i class="fa-solid fa-question text-slate-500"></i>' : escapeHtml(studentInitials(s.student_name))}</span>
+            <span class="min-w-0 flex-1">
+              <span class="block font-bold text-sm text-slate-100 truncate">${escapeHtml(s.student_name || 'Học sinh')}</span>
+              <span class="block text-xs text-slate-500 truncate">${escapeHtml(s.exam_title || s.exam_id || '')} · ${s.page_count || 1} ảnh · ${(s.extracted_questions || []).length} câu</span>
+            </span>
+            <span class="text-right shrink-0">
+              <span class="block font-mono font-bold text-[15px] ${over ? 'text-rose-300' : 'text-slate-100'}">${score.toFixed(2)}<span class="text-xs text-slate-500 font-medium">/${max % 1 === 0 ? max.toFixed(0) : max.toFixed(1)}</span></span>
+              ${chip}
+            </span>`;
+          box.appendChild(row);
+        });
+      } catch (e) {
+        box.innerHTML = '<div class="text-center py-6 text-xs text-slate-500">Không tải được lịch sử (' + escapeHtml(e.message) + ').</div>';
+      }
+    }
+
+    // Menu "Chấm bài mới"
+    function toggleNewGradeMenu(ev) {
+      if (ev) ev.stopPropagation();
+      document.getElementById('new-grade-menu').classList.toggle('hidden');
+    }
+    function closeNewGradeMenu() {
+      const m = document.getElementById('new-grade-menu');
+      if (m) m.classList.add('hidden');
+    }
+    document.addEventListener('click', (e) => {
+      const m = document.getElementById('new-grade-menu');
+      if (m && !m.classList.contains('hidden') && !m.contains(e.target)) m.classList.add('hidden');
+    });
 
     // Render Data into UI
     function renderGradingRecord(data) {
       currentSubmission = data;
       document.getElementById('student-name-display').textContent = data.student_name || 'Học sinh';
-      document.getElementById('status-display').textContent = data.status;
-      document.getElementById('status-display').className = data.status === 'APPROVED' ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold';
+      const statusInfo = STATUS_LABELS[data.status] || [data.status || '—', 'text-slate-300'];
+      document.getElementById('status-display').textContent = statusInfo[0];
+      document.getElementById('status-display').className = statusInfo[1] + ' font-semibold';
+      document.getElementById('status-display').title = data.status || '';
+      const avatar = document.getElementById('student-avatar');
+      if (avatar) {
+        avatar.textContent = studentInitials(data.student_name);
+        avatar.style.setProperty('--ring', data.status === 'APPROVED' ? 'var(--em-green)' : 'var(--em-orange)');
+      }
+
+      // v0.7: rời trang chủ → hiện vùng chấm
+      document.getElementById('home-recent').classList.add('hidden');
+      ['score-card', 'review-workspace', 'action-bar'].forEach((id) => document.getElementById(id).classList.remove('hidden'));
+      document.getElementById('right-scroll').scrollTop = 0;
 
       const totalPossible = data.total_points || 10.0;
 
@@ -1004,9 +1157,9 @@
       if (sympyBanner) {
         if (data.math_verification && data.math_verification.equations_checked > 0) {
           const hasErr = data.math_verification.invalid_transitions > 0;
-          sympyBanner.className = 'mt-2.5 p-2.5 rounded-lg text-[11px] border ' + (hasErr
-            ? 'bg-rose-950/50 border-rose-700/70 text-rose-200'
-            : 'bg-emerald-950/50 border-emerald-700/70 text-emerald-200');
+          sympyBanner.className = 'mt-2.5 px-3 py-2 rounded-xl text-[12px] font-medium ' + (hasErr
+            ? 'bg-rose-500/15 text-rose-300'
+            : 'bg-emerald-500/15 text-emerald-300');
           sympyBanner.innerHTML = `<i class="fa-solid ${hasErr ? 'fa-triangle-exclamation text-rose-400' : 'fa-calculator text-emerald-400'} mr-1.5"></i><strong>SymPy:</strong> ${data.math_verification.summary}`;
           sympyBanner.classList.remove('hidden');
         } else {
@@ -1034,8 +1187,22 @@
         telPanel.classList.remove('hidden');
       }
 
+      // Chip nhỏ trong thẻ điểm (chi tiết nằm ở tab Ma trận & đo)
+      const chipTime = document.getElementById('chip-time');
+      const chipCost = document.getElementById('chip-cost');
+      if (data.telemetry && data.telemetry.total_ms) {
+        chipTime.querySelector('span').textContent = `${(data.telemetry.total_ms / 1000).toFixed(2)}s`;
+        chipTime.classList.remove('hidden');
+        chipCost.textContent = `~${data.telemetry.estimated_cost_vnd || 0}đ`;
+        chipCost.classList.remove('hidden');
+      } else {
+        chipTime.classList.add('hidden');
+        chipCost.classList.add('hidden');
+      }
+
       const score = data.final_score !== null ? data.final_score : data.ai_total_score;
-      document.getElementById('display-total-score').innerHTML = `${score.toFixed(2)} <span class="text-xs font-normal text-slate-500">/ ${totalPossible.toFixed(1)}đ</span>`;
+      setTotalScoreDisplay(score, totalPossible);
+      renderAttentionBar(data);
 
       // Confidence badge
       const confBadge = document.getElementById('badge-confidence');
@@ -1126,7 +1293,15 @@
           const qLines = (eq && eq.lines) ? eq.lines : [];
 
           const qWrap = document.createElement('div');
-          qWrap.className = 'bg-slate-800/50 border border-slate-700/80 rounded-xl p-3 space-y-2';
+          qWrap.className = 'em-card p-4 space-y-2';
+          qWrap.dataset.qid = qr.question_id;
+          const qEarned = Number(qr.suggested_score ?? qr.earned_points ?? 0);
+          const qMax = Number(qr.total_points ?? qr.max_score ?? 0);
+          const qState = qEarned > qMax + 0.01 ? 'over' : (qEarned + 0.01 < qMax ? 'partial' : 'full');
+          const qColor = qState === 'over' ? 'text-rose-300' : (qState === 'partial' ? 'text-amber-300' : 'text-emerald-300');
+          const qIcon = qState === 'over' ? '<span class="em-ico sm em-i-magenta"><i class="fa-solid fa-xmark"></i></span>'
+            : (qState === 'partial' ? '<span class="em-ico sm em-i-orange"><i class="fa-solid fa-exclamation"></i></span>'
+            : '<span class="em-ico sm em-i-green"><i class="fa-solid fa-check"></i></span>');
 
           // Header câu + nút nhảy thẳng tới đúng ảnh nguồn
           const srcBtnsHtml = srcFiles.map((fn) => {
@@ -1136,17 +1311,20 @@
           }).join(' ');
 
           const headerDiv = document.createElement('div');
-          headerDiv.className = 'flex items-start justify-between gap-2 pb-1.5 border-b border-slate-700/60';
+          headerDiv.className = 'flex items-start justify-between gap-3 pb-2 border-b-[1.5px] border-slate-800';
           headerDiv.innerHTML = `
-            <div class="space-y-1">
+            <div class="flex items-start gap-3 min-w-0">
+            ${qIcon}
+            <div class="space-y-1 min-w-0">
               <div class="flex items-center gap-1.5 flex-wrap">
-                <span class="text-xs font-bold text-indigo-200">📌 ${qr.question_id}</span>
+                <span class="text-sm font-bold text-slate-100">${qr.question_id}</span>
                 ${srcFiles.length > 1 ? '<span class="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono">Ghép ' + srcFiles.length + ' ảnh</span>' : ''}
                 ${srcBtnsHtml}
               </div>
               ${eq && eq.question_text ? `<p class="text-[11px] text-slate-400 italic math-content">Đề nhận diện: ${formatMathSnippet(eq.question_text)}</p>` : ''}
             </div>
-            <span class="font-mono text-sm font-black text-amber-300 shrink-0">${(qr.suggested_score || qr.earned_points || 0).toFixed(2)} / ${(qr.total_points || qr.max_score || 0).toFixed(2)}đ</span>
+            </div>
+            <span class="font-mono text-sm font-bold ${qColor} shrink-0">${(qr.suggested_score || qr.earned_points || 0).toFixed(2)}<span class="text-slate-500"> / ${(qr.total_points || qr.max_score || 0).toFixed(2)}đ</span></span>
           `;
           qWrap.appendChild(headerDiv);
 
@@ -1463,10 +1641,10 @@
       document.getElementById('ftab-path').classList.toggle('hidden', tab !== 'path');
       document.getElementById('ftab-btn-upload').className = tab === 'upload'
         ? 'py-1.5 rounded-lg text-xs font-bold bg-sky-600 text-white transition'
-        : 'py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition';
+        : 'py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-100 transition';
       document.getElementById('ftab-btn-path').className = tab === 'path'
         ? 'py-1.5 rounded-lg text-xs font-bold bg-sky-600 text-white transition'
-        : 'py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition';
+        : 'py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-100 transition';
     }
     function updateFolderPreviewUI(files, folderLabel = '') {
       const box = document.getElementById('folder-file-summary');
@@ -1672,10 +1850,7 @@
     function switchRightTab(tabName) {
       ['verify', 'score', 'matrix'].forEach((t) => {
         document.getElementById(`rtab-${t}`).classList.toggle('hidden', t !== tabName);
-        const btn = document.getElementById(`rtab-btn-${t}`);
-        btn.className = t === tabName
-          ? 'py-2 px-2 rounded-lg text-[11px] font-bold bg-indigo-600 text-white transition flex items-center justify-center gap-1'
-          : 'py-2 px-2 rounded-lg text-[11px] font-semibold text-slate-400 hover:text-white transition flex items-center justify-center gap-1';
+        document.getElementById(`rtab-btn-${t}`).classList.toggle('is-on', t === tabName);
       });
       renderAllMath();
     }
@@ -1848,7 +2023,7 @@
           const val = (l.latex || l.raw_text || '').replace(/"/g, '&quot;');
           return `<div class="flex items-center gap-1.5">
             <span class="text-[10px] font-mono text-slate-500 w-7 shrink-0">#${l.line_no || (lIdx + 1)}</span>
-            <input type="text" class="ocr-line-edit-${qIdx} flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[11px] font-mono text-white" data-lineno="${l.line_no || (lIdx + 1)}" data-linetype="${l.line_type || 'equation'}" data-strike="${l.is_strikethrough ? '1' : '0'}" value="${val}" />
+            <input type="text" class="ocr-line-edit-${qIdx} flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[11px] font-mono text-slate-100" data-lineno="${l.line_no || (lIdx + 1)}" data-linetype="${l.line_type || 'equation'}" data-strike="${l.is_strikethrough ? '1' : '0'}" value="${val}" />
           </div>`;
         }).join('');
         editBox.innerHTML = `
@@ -1919,7 +2094,7 @@
           btn.className = 'w-full text-left p-3 rounded-xl bg-slate-900 hover:bg-slate-700/80 border border-slate-700 flex items-center justify-between gap-2 transition';
           btn.innerHTML = `
             <div class="min-w-0">
-              <div class="font-bold text-white truncate">${s.exam_title || s.exam_id}</div>
+              <div class="font-bold text-slate-100 truncate">${s.exam_title || s.exam_id}</div>
               <div class="text-[11px] text-slate-400 mt-0.5">
                 <span class="font-mono text-sky-300">${s.submission_id}</span> · ${s.student_name} · <strong>${s.page_count || 1} ảnh</strong> · ${(s.extracted_questions || []).length} câu
               </div>
@@ -1983,10 +2158,10 @@
       document.getElementById('rubtab-text').classList.toggle('hidden', tab !== 'text');
       document.getElementById('rubtab-btn-files').className = tab === 'files'
         ? 'py-1.5 rounded-lg text-xs font-bold bg-teal-600 text-white transition'
-        : 'py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition';
+        : 'py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-100 transition';
       document.getElementById('rubtab-btn-text').className = tab === 'text'
         ? 'py-1.5 rounded-lg text-xs font-bold bg-teal-600 text-white transition'
-        : 'py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition';
+        : 'py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-100 transition';
     }
 
     async function generateRubric() {
@@ -2046,7 +2221,7 @@
         div.innerHTML = `
           <div class="flex items-center gap-2">
             <input type="text" data-qidx="${idx}" data-field="question_id" value="${(q.question_id || '').replace(/"/g, '&quot;')}" class="w-24 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs font-bold text-sky-300" />
-            <input type="text" data-qidx="${idx}" data-field="question_text" value="${(q.question_text || '').replace(/"/g, '&quot;')}" class="flex-1 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-white" />
+            <input type="text" data-qidx="${idx}" data-field="question_text" value="${(q.question_text || '').replace(/"/g, '&quot;')}" class="flex-1 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-100" />
             <input type="number" step="0.25" data-qidx="${idx}" data-field="max_score" value="${q.max_score || q.total_points || 1}" class="w-16 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs font-mono text-amber-300 text-right" />
           </div>
           <div class="text-[10px] text-emerald-300 font-mono truncate" title="${firstAns.replace(/"/g, '&quot;')}">Đáp án chuẩn: ${firstAns || '(Theo tiêu chí AI)'}</div>
@@ -2445,16 +2620,18 @@
     // Init
     checkApiKeyStatus();
     loadExamsDropdown();
+    syncDarkIcon(window.emIsDark());
+    loadHomeRecent();
   </script>
 
   <!-- Mobile QR Modal -->
   <div id="mobile-qr-modal" class="hidden fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
     <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
       <div class="flex items-center justify-between">
-        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+        <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2">
           <i class="fa-solid fa-qrcode text-violet-400"></i> Mở App Chụp Bài trên Điện Thoại
         </h3>
-        <button onclick="closeMobileQrModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+        <button onclick="closeMobileQrModal()" class="text-slate-400 hover:text-slate-100"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div id="mob-qr-cert-badge" class="text-[11px] font-mono bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-emerald-300"></div>
       <div class="flex justify-center bg-white p-3 rounded-xl">
@@ -2477,15 +2654,15 @@
   <div id="gradebook-modal" class="hidden fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
     <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-4xl w-full p-6 shadow-2xl max-h-[90vh] flex flex-col space-y-3">
       <div class="flex items-center justify-between">
-        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+        <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2">
           <i class="fa-solid fa-table text-cyan-400"></i> Bảng Điểm Excel & Điền Hàng/Cột Tự Động
         </h3>
-        <button onclick="closeGradebookModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+        <button onclick="closeGradebookModal()" class="text-slate-400 hover:text-slate-100"><i class="fa-solid fa-xmark"></i></button>
       </div>
 
       <!-- Top Bar: Select existing gradebook or Create / Upload -->
       <div class="flex flex-wrap items-center gap-2 bg-slate-900/80 p-2.5 rounded-xl border border-slate-700">
-        <select id="gb-select" onchange="loadSelectedGradebook()" class="flex-1 min-w-[200px] bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1.5 text-xs text-white"></select>
+        <select id="gb-select" onchange="loadSelectedGradebook()" class="flex-1 min-w-[200px] bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1.5 text-xs text-slate-100"></select>
         <button onclick="toggleGbSetupPanel('create')" class="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold">➕ Tạo bảng mới</button>
         <button onclick="toggleGbSetupPanel('upload')" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold">📤 Upload Excel (.xlsx)</button>
         <a id="gb-download-link" href="#" class="hidden px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold">⬇️ Tải .xlsx</a>
@@ -2494,10 +2671,10 @@
       <!-- Create New Panel -->
       <div id="gb-panel-create" class="hidden bg-slate-900 border border-cyan-700/60 rounded-xl p-3 space-y-2 text-xs">
         <div class="grid grid-cols-2 gap-2">
-          <input id="gb-new-name" type="text" placeholder="Tên bảng điểm (VD: Bảng điểm Toán 7A)" class="bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1.5 text-white" />
-          <input id="gb-new-cols" type="text" placeholder="Cột tùy chọn (để trống dùng mặc định STT, Tên, Câu..., Tổng, Nhận xét)" class="bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1.5 text-white" />
+          <input id="gb-new-name" type="text" placeholder="Tên bảng điểm (VD: Bảng điểm Toán 7A)" class="bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1.5 text-slate-100" />
+          <input id="gb-new-cols" type="text" placeholder="Cột tùy chọn (để trống dùng mặc định STT, Tên, Câu..., Tổng, Nhận xét)" class="bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1.5 text-slate-100" />
         </div>
-        <textarea id="gb-new-students" rows="3" placeholder="Danh sách tên học sinh có sẵn (mỗi em 1 dòng, để trống nếu muốn tự thêm dòng khi chấm)..." class="w-full bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1.5 text-white"></textarea>
+        <textarea id="gb-new-students" rows="3" placeholder="Danh sách tên học sinh có sẵn (mỗi em 1 dòng, để trống nếu muốn tự thêm dòng khi chấm)..." class="w-full bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1.5 text-slate-100"></textarea>
         <div class="flex justify-end gap-2">
           <button onclick="toggleGbSetupPanel('none')" class="px-3 py-1 rounded bg-slate-700 text-slate-300">Đóng</button>
           <button onclick="createNewGradebook()" class="px-3 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-bold">Tạo Bảng</button>
@@ -2508,7 +2685,7 @@
       <div id="gb-panel-upload" class="hidden bg-slate-900 border border-indigo-700/60 rounded-xl p-3 space-y-2 text-xs">
         <div class="grid grid-cols-2 gap-2">
           <input id="gb-upload-file" type="file" accept=".xlsx" class="text-slate-300 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:bg-indigo-600 file:text-white" />
-          <input id="gb-upload-newcol" type="text" placeholder="Tên cột điểm mới thêm (bỏ trống nếu bảng đã có cột Điểm)" class="bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1.5 text-white" />
+          <input id="gb-upload-newcol" type="text" placeholder="Tên cột điểm mới thêm (bỏ trống nếu bảng đã có cột Điểm)" class="bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1.5 text-slate-100" />
         </div>
         <div class="flex justify-end gap-2">
           <button onclick="toggleGbSetupPanel('none')" class="px-3 py-1 rounded bg-slate-700 text-slate-300">Đóng</button>
@@ -2523,8 +2700,8 @@
           <select id="gb-score-col" onchange="saveGbColumnMapping()" class="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-amber-300 font-semibold"></select>
           <span class="text-slate-400">Cột Nhận xét:</span>
           <select id="gb-note-col" onchange="saveGbColumnMapping()" class="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sky-300"></select>
-          <input id="gb-add-col-name" type="text" placeholder="+ Thêm cột..." class="w-28 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-white" />
-          <button onclick="addGradebookColumn()" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white font-semibold">+ Cột</button>
+          <input id="gb-add-col-name" type="text" placeholder="+ Thêm cột..." class="w-28 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-slate-100" />
+          <button onclick="addGradebookColumn()" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-100 font-semibold">+ Cột</button>
         </div>
         <div class="flex items-center gap-2">
           <button id="gb-btn-fill-batch" onclick="fillBatchToGradebook()" class="hidden px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold">✍️ Điền cả lớp vào Bảng</button>

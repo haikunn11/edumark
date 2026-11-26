@@ -1,4 +1,4 @@
-# EduMark AI — Hệ Thống Chấm Bài Tự Luận Viết Tay Thông Minh (`v0.2.0`)
+# EduMark AI — Hệ Thống Chấm Bài Tự Luận Viết Tay Thông Minh (`v0.7.0`)
 
 > **🎯 Mục tiêu cuối cùng (North Star):** Mở **App** → **Chụp bài làm viết tay của học sinh** → **Nhìn trọn vẹn 100% dữ liệu chữ viết tay** → **Chấm bài chuẩn xác**.
 
@@ -31,10 +31,13 @@ edumark/
 │   └── static/
 │       ├── index.html               # Desktop Split-Screen Dashboard (TailwindCSS + KaTeX)
 │       ├── mobile.html              # Mobile PWA App Chụp Bài Trực Tiếp (/app)
+│       ├── theme.css                # v0.7 Design system "Floating Cards": biến màu Sáng/Tối, token, component
+│       ├── theme.js                 # v0.7 Cấu hình Tailwind qua biến CSS + áp theme (nạp ngay sau Tailwind CDN)
 │       ├── manifest.json            # PWA Manifest
 │       └── sw.js                    # Service Worker
-├── tests/                           # 8 bộ pytest (52 test cases)
-├── planning/                        # Bộ SPEC theo chuẩn Spec-First (v0.1.0 & v0.2.0)
+├── scripts/gen_theme_palette.py     # Sinh khối biến màu trong theme.css (Sáng = Floating Cards, Tối = bảng màu v0.6)
+├── tests/                           # Bộ pytest (kể cả test_v07_ui_theme.py)
+├── planning/                        # Bộ SPEC theo chuẩn Spec-First (01 → 03_2026-11-27_ui-floating-cards)
 ├── brain4agent/                     # Bộ nhớ Não Bộ Đa Tầng V5.2
 ├── requirements.txt                 # Dependencies chuẩn
 ├── .env.example                     # Mẫu cấu hình môi trường
