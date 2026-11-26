@@ -70,7 +70,7 @@
       <div>
         <div class="flex items-center gap-2">
           <h1 class="text-base font-bold text-white tracking-wide">EduMark AI</h1>
-          <span class="text-[10px] uppercase font-bold tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full">v0.4</span>
+          <span class="text-[10px] uppercase font-bold tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full">v0.5</span>
           <span id="badge-confidence" class="hidden text-xs px-2.5 py-0.5 rounded-full font-bold border">🟢 95%</span>
         </div>
         <p class="text-xs text-indigo-300 font-medium flex items-center gap-1.5" id="exam-title-header"><i class="fa-solid fa-wand-magic-sparkles text-indigo-400"></i><span>🎯 Tự động nhận diện Đề bài (Toán THCS)</span></p>
@@ -91,6 +91,12 @@
       <a href="/app" title="Mở chế độ Mobile App Chụp Bài" class="bg-violet-600/80 hover:bg-violet-500 text-white text-xs px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1.5 border border-violet-500/50">
         <i class="fa-solid fa-mobile-screen-button"></i> <span class="hidden sm:inline">App Chụp Bài</span>
       </a>
+      <button onclick="openMobileQrModal()" title="Quét QR mở App Chụp Bài trực tiếp trên Điện thoại (HTTPS)" class="bg-emerald-600/80 hover:bg-emerald-500 text-white text-xs px-2.5 py-1.5 rounded-lg font-medium transition flex items-center gap-1 border border-emerald-500/50">
+        <i class="fa-solid fa-qrcode"></i> <span class="hidden sm:inline">QR</span>
+      </button>
+      <button onclick="openMobileQrModal()" title="Lấy mã QR mở Camera trên Điện thoại (HTTPS LAN)" class="bg-violet-900/70 hover:bg-violet-800 text-violet-200 text-xs px-2.5 py-1.5 rounded-lg font-semibold transition flex items-center gap-1 border border-violet-500/40">
+        <i class="fa-solid fa-qrcode"></i> <span class="hidden sm:inline">QR</span>
+      </button>
       <!-- API Key Status Pill -->
       <button onclick="openApiKeyModal()" id="btn-api-key" class="bg-slate-700/70 hover:bg-slate-700 text-xs px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1.5 border border-slate-600">
         <span id="api-dot" class="w-2 h-2 rounded-full bg-amber-400"></span>
@@ -2173,9 +2179,63 @@
       }
     }
 
+    async function openMobileQrModal() {
+      document.getElementById('mobile-qr-modal').classList.remove('hidden');
+      try {
+        const res = await fetch('/api/v1/system/mobile-access');
+        const info = await res.json();
+        const httpsUrl = info.https_url || 'https://localhost:8443/app';
+        const httpUrl = info.http_url || 'http://localhost:8000/app';
+        document.getElementById('mob-qr-https').value = httpsUrl;
+        document.getElementById('mob-qr-http').textContent = httpUrl;
+        document.getElementById('mob-qr-cert-badge').textContent = info.cert_ready
+          ? '🟢 HTTPS Camera LAN đã sẵn sàng (:8443)'
+          : '🟡 Chưa khởi chạy cổng :8443 (chạy scripts/start_https_mobile.py)';
+        document.getElementById('mob-qr-img').src = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(httpsUrl)}`;
+      } catch (e) {
+        console.warn(e);
+      }
+    }
+    function closeMobileQrModal() {
+      document.getElementById('mobile-qr-modal').classList.add('hidden');
+    }
+    function copyMobileUrl() {
+      const inp = document.getElementById('mob-qr-https');
+      if (inp && navigator.clipboard) {
+        navigator.clipboard.writeText(inp.value);
+      }
+    }
+
     // Init
     checkApiKeyStatus();
     loadExamsDropdown();
   </script>
+
+  <!-- Mobile QR Modal -->
+  <div id="mobile-qr-modal" class="hidden fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-qrcode text-violet-400"></i> Mở App Chụp Bài trên Điện Thoại
+        </h3>
+        <button onclick="closeMobileQrModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="mob-qr-cert-badge" class="text-[11px] font-mono bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-emerald-300"></div>
+      <div class="flex justify-center bg-white p-3 rounded-xl">
+        <img id="mob-qr-img" src="" alt="QR Mở EduMark App" class="w-48 h-48 object-contain" />
+      </div>
+      <div class="space-y-1.5">
+        <label class="block text-[11px] text-slate-300 font-semibold">Link HTTPS bật Camera trực tiếp (cùng Wi-Fi):</label>
+        <div class="flex gap-1.5">
+          <input id="mob-qr-https" type="text" readonly class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-emerald-300" />
+          <button onclick="copyMobileUrl()" class="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold">Copy</button>
+        </div>
+        <p class="text-[10px] text-slate-400">Dự phòng HTTP (dùng nút "Chụp bài ngay" mở Camera máy): <span id="mob-qr-http" class="font-mono text-sky-300"></span></p>
+        <p class="text-[10px] text-amber-300/90 bg-amber-950/40 border border-amber-800/50 rounded-lg p-2">
+          Lưu ý lần đầu mở link HTTPS nội bộ trên iPhone/Android: bấm <strong>Chi tiết / Nâng cao → Tiếp tục truy cập</strong> để cấp quyền Camera sau.
+        </p>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

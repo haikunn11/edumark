@@ -33,7 +33,7 @@
       <div>
         <div class="flex items-center gap-1.5">
           <h1 class="text-sm font-bold tracking-wide text-white">EduMark AI</h1>
-          <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">v0.2</span>
+          <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">v0.5</span>
         </div>
         <p id="provider-pill" class="text-[11px] text-slate-400">Đang kiểm tra AI...</p>
       </div>
@@ -51,9 +51,18 @@
     <!-- TAB 1: CAPTURE -->
     <section id="tab-capture" class="space-y-4">
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+        <!-- Chế độ chụp: 1 Học sinh vs Chụp liên hoàn cả xấp lớp -->
+        <div class="grid grid-cols-2 gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
+          <button id="mob-mode-single" onclick="setCaptureMode('single')" class="py-2 rounded-lg text-xs font-bold bg-indigo-600 text-white transition">
+            👤 1 Học sinh
+          </button>
+          <button id="mob-mode-class" onclick="setCaptureMode('class')" class="py-2 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition">
+            📚 Cả xấp lớp (Tự tách HS)
+          </button>
+        </div>
         <div class="flex items-center justify-between">
           <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Đề thi / Barem chấm</label>
-          <span class="text-[11px] text-indigo-400">Hỗ trợ nhiều trang</span>
+          <span id="capture-limit-label" class="text-[11px] text-indigo-400">Hỗ trợ nhiều trang</span>
         </div>
         <select id="exam-select" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500">
           <option value="AUTO">🎯 Tự động nhận diện Đề bài (AI Auto)</option>
@@ -66,15 +75,23 @@
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
         <div id="live-camera-box" class="hidden relative rounded-xl overflow-hidden bg-black aspect-[3/4]">
           <video id="camera-video" autoplay playsinline class="w-full h-full object-cover"></video>
-          <div class="absolute inset-6 rounded-xl doc-frame pointer-events-none flex items-end justify-center pb-2">
-            <span class="text-[11px] bg-slate-900/80 text-indigo-200 px-2.5 py-1 rounded-full">Căn gọn trang bài làm vào khung</span>
+          <div class="absolute inset-4 rounded-xl doc-frame pointer-events-none flex flex-col justify-between p-2">
+            <div class="flex justify-between items-center">
+              <span id="cam-counter-pill" class="text-[11px] font-bold bg-emerald-600/90 text-white px-2.5 py-0.5 rounded-full">Đã chụp: 0 trang</span>
+              <span class="text-[10px] bg-slate-900/80 text-indigo-200 px-2 py-0.5 rounded-full">Khung A4 chuẩn</span>
+            </div>
+            <span class="text-[11px] bg-slate-900/80 text-indigo-200 px-2.5 py-1 rounded-full self-center">Đưa trang bài làm vừa khung rồi bấm chụp</span>
           </div>
+          <div id="camera-flash" class="hidden absolute inset-0 bg-white/75 pointer-events-none"></div>
           <div class="absolute bottom-3 inset-x-0 flex items-center justify-center gap-4">
-            <button onclick="stopLiveCamera()" class="w-11 h-11 rounded-full bg-slate-900/80 text-white border border-slate-600 flex items-center justify-center">
+            <button onclick="stopLiveCamera()" class="w-11 h-11 rounded-full bg-slate-900/85 text-white border border-slate-600 flex items-center justify-center">
               <i class="fa-solid fa-xmark"></i>
             </button>
             <button onclick="snapFromVideo()" class="w-16 h-16 rounded-full bg-white border-4 border-indigo-500 shadow-lg active:scale-95 transition flex items-center justify-center">
               <span class="w-11 h-11 rounded-full bg-indigo-600 block"></span>
+            </button>
+            <button onclick="stopLiveCamera()" class="px-3 py-2 rounded-full bg-emerald-600/90 text-white text-xs font-bold border border-emerald-400 shadow">
+              Xong (<span id="cam-done-count">0</span>)
             </button>
           </div>
         </div>
@@ -94,14 +111,20 @@
           </label>
         </div>
 
-        <button onclick="startLiveCamera()" class="w-full py-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-xs font-medium text-indigo-300 flex items-center justify-center gap-2">
-          <i class="fa-solid fa-crop-simple"></i> Mở khung ngắm Camera trực tiếp (Document Scanner)
-        </button>
+        <div class="flex items-center justify-between gap-2">
+          <button onclick="startLiveCamera()" class="flex-1 py-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-xs font-medium text-indigo-300 flex items-center justify-center gap-2">
+            <i class="fa-solid fa-crop-simple"></i> Camera trực tiếp (Chụp liên tiếp)
+          </button>
+          <label class="flex items-center gap-1.5 text-[11px] text-slate-300 bg-slate-800/60 px-2.5 py-2.5 rounded-xl border border-slate-700 cursor-pointer">
+            <input id="chk-continuous" type="checkbox" checked class="accent-indigo-500" />
+            <span>Liên tiếp</span>
+          </label>
+        </div>
 
         <!-- Captured Pages Tray -->
         <div id="pages-tray-wrapper" class="hidden space-y-2.5 pt-2 border-t border-slate-800">
           <div class="flex items-center justify-between">
-            <span class="text-xs font-semibold text-slate-300">Các trang đã chụp (<span id="page-count-label">0</span>/10)</span>
+            <span class="text-xs font-semibold text-slate-300">Các trang đã chụp (<span id="page-count-label">0</span>/<span id="page-max-label">10</span>)</span>
             <button onclick="clearPages()" class="text-[11px] text-rose-400 hover:text-rose-300">Xóa hết</button>
           </div>
           <div id="pages-tray" class="grid grid-cols-3 gap-2.5"></div>
@@ -124,12 +147,29 @@
       </div>
 
       <div id="result-content" class="hidden space-y-4">
+        <!-- Mobile Class Batch Bar (Chế độ Chụp cả xấp lớp) -->
+        <div id="mobile-class-bar" class="hidden bg-emerald-950/40 border border-emerald-600/50 rounded-2xl p-3.5 space-y-2.5">
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <p id="mob-batch-title" class="text-xs font-bold text-emerald-300">Đã tách học sinh</p>
+              <p id="mob-batch-meta" class="text-[10px] font-mono text-slate-300"></p>
+            </div>
+            <a id="mob-batch-excel" href="#" class="px-2.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold shrink-0">
+              <i class="fa-solid fa-file-excel mr-1"></i>Excel
+            </a>
+          </div>
+          <div id="mob-batch-pills" class="flex flex-wrap gap-1.5"></div>
+        </div>
+
         <!-- Score Header -->
         <div class="bg-gradient-to-br from-slate-900 to-indigo-950/60 border border-indigo-500/30 rounded-2xl p-4">
           <div class="flex items-start justify-between gap-2">
             <div>
               <p id="res-exam-title" class="text-xs text-indigo-300 font-semibold"></p>
-              <h2 id="res-student-name" class="text-base font-bold text-white mt-0.5"></h2>
+              <div class="flex items-center gap-1.5 mt-0.5">
+                <h2 id="res-student-name" class="text-base font-bold text-white"></h2>
+                <button onclick="promptMobileRename()" title="Đổi tên học sinh" class="text-xs text-amber-300 hover:text-amber-200"><i class="fa-solid fa-pen"></i></button>
+              </div>
               <p id="res-meta" class="text-[11px] text-slate-400 mt-1"></p>
             </div>
             <div class="text-right">
@@ -224,7 +264,24 @@
 
     let capturedPages = []; // [{ file: File, url: string, quality: object | null }]
     let currentRecord = null;
+    let currentMobileBatch = null;
+    let captureMode = 'single'; // 'single' | 'class'
     let videoStream = null;
+
+    function setCaptureMode(mode) {
+      captureMode = mode;
+      const isClass = mode === 'class';
+      document.getElementById('mob-mode-single').className = !isClass
+        ? 'py-2 rounded-lg text-xs font-bold bg-indigo-600 text-white transition'
+        : 'py-2 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition';
+      document.getElementById('mob-mode-class').className = isClass
+        ? 'py-2 rounded-lg text-xs font-bold bg-emerald-600 text-white transition'
+        : 'py-2 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition';
+      document.getElementById('student-name-input').classList.toggle('hidden', isClass);
+      document.getElementById('capture-limit-label').textContent = isClass ? 'Tối đa 30 ảnh · Tự tách HS' : 'Tối đa 10 trang / 1 HS';
+      document.getElementById('page-max-label').textContent = isClass ? '30' : '10';
+      renderPagesTray();
+    }
 
     async function initApp() {
       try {
@@ -300,22 +357,28 @@
       canvas.width = video.videoWidth || 1280;
       canvas.height = video.videoHeight || 960;
       canvas.getContext('2d').drawImage(video, 0, 0);
+      const keepOpen = document.getElementById('chk-continuous') && document.getElementById('chk-continuous').checked;
       canvas.toBlob((blob) => {
         if (!blob) return;
         const f = new File([blob], `page_${capturedPages.length + 1}.jpg`, { type: 'image/jpeg' });
-        stopLiveCamera();
+        if (!keepOpen) {
+          stopLiveCamera();
+        } else {
+          const fl = document.getElementById('camera-flash');
+          if (fl) { fl.classList.remove('hidden'); setTimeout(() => fl.classList.add('hidden'), 110); }
+        }
         handleFilesSelected([f]);
       }, 'image/jpeg', 0.92);
     }
 
     async function handleFilesSelected(fileList) {
       if (!fileList || fileList.length === 0) return;
+      const maxLim = captureMode === 'class' ? 30 : 10;
       for (const file of Array.from(fileList)) {
-        if (capturedPages.length >= 10) break;
+        if (capturedPages.length >= maxLim) break;
         const entry = { file, url: URL.createObjectURL(file), quality: null };
         capturedPages.push(entry);
         renderPagesTray();
-        // Chạy kiểm tra chất lượng tức thì cho trang vừa chụp
         try {
           const fd = new FormData();
           fd.append('file', file);
@@ -348,10 +411,16 @@
       const btnTxt = document.getElementById('grade-btn-text');
 
       document.getElementById('page-count-label').textContent = capturedPages.length;
+      const camCounter = document.getElementById('cam-counter-pill');
+      const camDone = document.getElementById('cam-done-count');
+      if (camCounter) camCounter.textContent = `Đã chụp: ${capturedPages.length} trang`;
+      if (camDone) camDone.textContent = String(capturedPages.length);
       wrap.classList.toggle('hidden', capturedPages.length === 0);
       btn.disabled = capturedPages.length === 0;
       btnTxt.textContent = capturedPages.length === 0
         ? 'Chụp ít nhất 1 trang để chấm bài'
+        : captureMode === 'class'
+        ? `Tách Học sinh & Chấm cả xấp (${capturedPages.length} ảnh)`
         : `Đọc chữ viết tay & Chấm ngay (${capturedPages.length} trang)`;
 
       tray.innerHTML = '';
@@ -398,23 +467,87 @@
         const fd = new FormData();
         capturedPages.forEach((p) => fd.append('files', p.file));
         fd.append('exam_id', document.getElementById('exam-select').value);
-        fd.append('student_name', document.getElementById('student-name-input').value.trim() || 'Học sinh ẩn danh');
 
-        const res = await fetch('/api/v1/submissions/grade-multipage', { method: 'POST', body: fd });
-        const data = await res.json();
-        if (!res.ok) {
-          const msg = (data.detail && data.detail.message) || data.detail || 'Lỗi chấm bài';
-          alert('Không thể chấm bài: ' + msg);
-          return;
+        if (captureMode === 'class') {
+          const res = await fetch('/api/v1/submissions/grade-folder-smart-upload', { method: 'POST', body: fd });
+          const data = await res.json();
+          if (!res.ok) {
+            const msg = (data.detail && data.detail.message) || data.detail || 'Lỗi chấm xấp bài';
+            alert('Không thể chấm bài: ' + msg);
+            return;
+          }
+          currentMobileBatch = data;
+          if (data.students && data.students.length > 0) {
+            currentRecord = data.students[0];
+            renderResult(currentRecord);
+            renderMobileClassBar(data);
+            switchTab('result');
+          }
+        } else {
+          fd.append('student_name', document.getElementById('student-name-input').value.trim() || 'Học sinh ẩn danh');
+          const res = await fetch('/api/v1/submissions/grade-multipage', { method: 'POST', body: fd });
+          const data = await res.json();
+          if (!res.ok) {
+            const msg = (data.detail && data.detail.message) || data.detail || 'Lỗi chấm bài';
+            alert('Không thể chấm bài: ' + msg);
+            return;
+          }
+          currentMobileBatch = null;
+          document.getElementById('mobile-class-bar').classList.add('hidden');
+          currentRecord = data;
+          renderResult(data);
+          switchTab('result');
         }
-        currentRecord = data;
-        renderResult(data);
-        switchTab('result');
       } catch (err) {
         alert('Lỗi kết nối server: ' + err.message);
       } finally {
         btn.disabled = capturedPages.length === 0;
-        btnTxt.textContent = `Đọc chữ viết tay & Chấm ngay (${capturedPages.length} trang)`;
+        renderPagesTray();
+      }
+    }
+
+    function renderMobileClassBar(batch) {
+      const bar = document.getElementById('mobile-class-bar');
+      if (!batch || !batch.students || !batch.students.length) {
+        bar.classList.add('hidden');
+        return;
+      }
+      document.getElementById('mob-batch-title').textContent = batch.summary || `Đã tách ${batch.total_students_detected} học sinh`;
+      const t = batch.telemetry || {};
+      document.getElementById('mob-batch-meta').textContent = `${((t.total_ms || 0) / 1000).toFixed(1)}s · ${(t.total_tokens || 0).toLocaleString()} tok · ~${t.estimated_cost_vnd || 0}đ`;
+      document.getElementById('mob-batch-excel').href = `/api/v1/batches/${batch.batch_id}/export-excel`;
+
+      const pills = document.getElementById('mob-batch-pills');
+      pills.innerHTML = '';
+      batch.students.forEach((rec) => {
+        const isAct = currentRecord && currentRecord.submission_id === rec.submission_id;
+        const b = document.createElement('button');
+        b.onclick = () => { currentRecord = rec; renderResult(rec); renderMobileClassBar(currentMobileBatch); };
+        b.className = 'px-2.5 py-1.5 rounded-xl text-[11px] font-semibold border ' + (isAct
+          ? 'bg-emerald-600 text-white border-emerald-400'
+          : 'bg-slate-900 text-slate-200 border-slate-700');
+        b.textContent = `${rec.student_name} (${rec.ai_total_score}/${rec.total_points}đ)`;
+        pills.appendChild(b);
+      });
+      bar.classList.remove('hidden');
+    }
+
+    async function promptMobileRename() {
+      if (!currentRecord) return;
+      const next = prompt('Nhập Họ tên học sinh:', currentRecord.student_name || '');
+      if (!next || !next.trim()) return;
+      const res = await fetch(`/api/v1/submissions/${currentRecord.submission_id}/student`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ student_name: next.trim() }),
+      });
+      if (res.ok) {
+        currentRecord = await res.json();
+        renderResult(currentRecord);
+        if (currentMobileBatch && currentMobileBatch.students) {
+          currentMobileBatch.students = currentMobileBatch.students.map((s) => s.submission_id === currentRecord.submission_id ? currentRecord : s);
+          renderMobileClassBar(currentMobileBatch);
+        }
       }
     }
 

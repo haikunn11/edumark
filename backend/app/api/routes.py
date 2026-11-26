@@ -190,6 +190,37 @@ def health_check() -> dict:
     }
 
 
+@router.get("/system/mobile-access")
+def get_mobile_access_info() -> dict:
+    """Trả về đường dẫn LAN HTTPS & HTTP để mở Mobile App /app chụp trực tiếp bằng Camera điện thoại."""
+    import socket
+
+    lan_ip = "127.0.0.1"
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.settimeout(0.4)
+            s.connect(("8.8.8.8", 80))
+            cand = s.getsockname()[0]
+            if cand and not cand.startswith("127."):
+                lan_ip = cand
+    except Exception:
+        try:
+            cand = socket.gethostbyname(socket.gethostname())
+            if cand and not cand.startswith("127."):
+                lan_ip = cand
+        except Exception:
+            pass
+
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    cert_ready = os.path.isfile(os.path.join(project_root, "certs", "edumark.crt"))
+    return {
+        "lan_ip": lan_ip,
+        "http_url": f"http://{lan_ip}:8000/app",
+        "https_url": f"https://{lan_ip}:8443/app",
+        "cert_ready": cert_ready,
+    }
+
+
 @router.get("/config/key-status")
 def get_key_status() -> dict:
     has_openai = bool(settings.OPENAI_API_KEY and not settings.OPENAI_API_KEY.startswith("mock_"))

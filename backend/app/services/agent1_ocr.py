@@ -479,7 +479,13 @@ TRẢ VỀ JSON OBJECT HỢP LỆ:
 
                 client = genai.Client(api_key=self.api_key)
                 candidates = []
-                for m in ("gemini-3-flash-preview", self.model_name, "gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview"):
+                for m in (
+                    self.model_name,
+                    "gemini-3.1-flash-lite",
+                    "gemini-3.1-flash-lite-preview",
+                    "gemini-flash-lite-latest",
+                    "gemini-3-flash-preview",
+                ):
                     if m and m not in candidates:
                         candidates.append(m)
 
@@ -502,7 +508,7 @@ TRẢ VỀ JSON OBJECT HỢP LỆ:
                                 config=types.GenerateContentConfig(**cfg_kwargs),
                             )
                         except Exception as tc_err:
-                            if "thinking" in str(tc_err).lower() and "thinking_config" in cfg_kwargs:
+                            if any(k in str(tc_err).lower() for k in ("thinking", "invalid_argument", "400")) and "thinking_config" in cfg_kwargs:
                                 cfg_kwargs.pop("thinking_config", None)
                                 resp = client.models.generate_content(
                                     model=model_id,
@@ -701,9 +707,10 @@ TRẢ VỀ JSON OBJECT HỢP LỆ:
         candidate_models: list[str] = []
         for m in (
             self.model_name,
-            "gemini-3-flash-preview",
             "gemini-3.1-flash-lite",
             "gemini-3.1-flash-lite-preview",
+            "gemini-flash-lite-latest",
+            "gemini-3-flash-preview",
         ):
             if m and m not in candidate_models:
                 candidate_models.append(m)
@@ -731,7 +738,7 @@ TRẢ VỀ JSON OBJECT HỢP LỆ:
                             config=types.GenerateContentConfig(**cfg_kwargs),
                         )
                     except Exception as tc_err:
-                        if "thinking" in str(tc_err).lower() and "thinking_config" in cfg_kwargs:
+                        if any(k in str(tc_err).lower() for k in ("thinking", "invalid_argument", "400")) and "thinking_config" in cfg_kwargs:
                             cfg_kwargs.pop("thinking_config", None)
                             response = client.models.generate_content(
                                 model=model_id,

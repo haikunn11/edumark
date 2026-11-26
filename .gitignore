@@ -16,7 +16,8 @@ backend/data/outputs/
 .vscode/
 *.log
 *.tmp
-# Agent-specific directories
+# Agent-specific & local TLS certs
+certs/
 .agents/
 .claude/
 brain4agent/
