@@ -6,7 +6,7 @@ on:
       default_server_url:
         description: 'Default EduMark AI Server URL'
         required: false
-        default: 'https://y.tail03c7eb.ts.net'
+        default: 'https://edumark-ai-843912880185.asia-southeast1.run.app'
   push:
     paths:
       - 'mobile-app/**'
@@ -33,7 +33,7 @@ jobs:
       - name: Override default server URL if provided
         if: ${{ inputs.default_server_url != '' }}
         run: |
-          python3 -c "p='mobile-app/www/index.html'; s=open(p,encoding='utf-8').read().replace(\"const DEFAULT_SERVER_URL = 'https://y.tail03c7eb.ts.net';\", \"const DEFAULT_SERVER_URL = '${{ inputs.default_server_url }}';\"); open(p,'w',encoding='utf-8').write(s)"
+          python3 -c "p='mobile-app/www/index.html'; s=open(p,encoding='utf-8').read().replace(\"const DEFAULT_SERVER_URL = 'https://edumark-ai-843912880185.asia-southeast1.run.app';\", \"const DEFAULT_SERVER_URL = '${{ inputs.default_server_url }}';\"); open(p,'w',encoding='utf-8').write(s)"
 
       - name: Install Capacitor dependencies
         working-directory: mobile-app

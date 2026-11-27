@@ -152,11 +152,11 @@
 
     <div id="view-settings" class="hidden">
       <label for="server-url-input">Địa chỉ Server EduMark AI (HTTPS hoặc LAN)</label>
-      <input id="server-url-input" type="url" placeholder="https://y.tail03c7eb.ts.net" autocomplete="off" />
+      <input id="server-url-input" type="url" placeholder="https://edumark-ai-843912880185.asia-southeast1.run.app" autocomplete="off" />
 
       <div class="quick-row">
-        <button type="button" class="chip-btn" onclick="fillPreset('https://y.tail03c7eb.ts.net')">Tailscale HTTPS mặc định</button>
-        <button type="button" class="chip-btn" onclick="fillPreset('http://192.168.1.45:8000')">LAN nội bộ (:8000)</button>
+        <button type="button" class="chip-btn" onclick="fillPreset('https://edumark-ai-843912880185.asia-southeast1.run.app')">Google Cloud Run 24/7</button>
+        <button type="button" class="chip-btn" onclick="fillPreset('https://y.tail03c7eb.ts.net')">Tailscale PC (cục bộ)</button>
       </div>
 
       <button type="button" id="btn-connect" class="primary-btn" onclick="connectAndOpen()">Kiểm tra &amp; Mở App</button>
@@ -164,13 +164,13 @@
       <div id="status-msg" class="msg"></div>
 
       <div class="hint">
-        <strong>Mẹo kết nối:</strong> Nếu không vào được, hãy kiểm tra máy tính đang chạy server EduMark AI (cổng <code>8000</code>) và bật Tailscale Funnel (<code>https://y.tail03c7eb.ts.net</code>) hoặc điền link Server Cloud nếu đã deploy.
+        <strong>Mẹo kết nối:</strong> Mặc định App kết nối thẳng lên <strong>Google Cloud Run 24/7</strong> (không cần bật máy tính). Nếu muốn dùng máy tính nội bộ, chọn <code>Tailscale PC</code> hoặc nhập địa chỉ LAN.
       </div>
     </div>
   </div>
 
   <script>
-    const DEFAULT_SERVER_URL = 'https://y.tail03c7eb.ts.net';
+    const DEFAULT_SERVER_URL = 'https://edumark-ai-843912880185.asia-southeast1.run.app';
     const STORAGE_KEY = 'edumark_server_url';
 
     function normalizeUrl(raw) {
