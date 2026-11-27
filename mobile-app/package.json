@@ -1,0 +1,14 @@
+{
+  "name": "edumark-ai-mobile",
+  "private": true,
+  "version": "0.8.0",
+  "description": "Android APK wrapper for EduMark AI",
+  "scripts": {
+    "configure": "node scripts/configure-android.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/cli": "^6.1.2",
+    "@capacitor/core": "^6.1.2"
+  }
+}

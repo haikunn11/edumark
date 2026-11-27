@@ -40,6 +40,7 @@
       <p id="provider-pill" class="text-[11px] text-slate-500 truncate mt-0.5">Đang kiểm tra AI...</p>
     </div>
     <div class="flex items-center gap-2 shrink-0">
+      <button id="mob-server-btn" onclick="openApkServerSettings()" class="hidden em-iconbtn !w-9 !h-9 !bg-slate-900" title="Đổi địa chỉ Server (App Android)"><i class="fa-solid fa-server"></i></button>
       <button onclick="toggleThemeMobile()" class="em-iconbtn !w-9 !h-9 !bg-slate-900" title="Đổi giao diện Sáng / Tối"><i id="mob-dark-icon" class="fa-solid fa-moon"></i></button>
       <a href="/" class="em-iconbtn !w-9 !h-9 !bg-slate-900" title="Mở Desktop"><i class="fa-solid fa-desktop"></i></a>
     </div>
@@ -311,7 +312,25 @@
       renderPagesTray();
     }
 
+    function openApkServerSettings() {
+      window.location.href = 'https://localhost/?change=1';
+    }
+
+    function detectApkMode() {
+      try {
+        const qp = new URLSearchParams(window.location.search);
+        if (qp.get('from') === 'apk') {
+          sessionStorage.setItem('edumark_apk_mode', '1');
+        }
+        if (sessionStorage.getItem('edumark_apk_mode') === '1') {
+          const srvBtn = document.getElementById('mob-server-btn');
+          if (srvBtn) srvBtn.classList.remove('hidden');
+        }
+      } catch (e) {}
+    }
+
     async function initApp() {
+      detectApkMode();
       try {
         const [keyRes, examsRes] = await Promise.all([
           fetch('/api/v1/config/key-status'),
@@ -319,9 +338,13 @@
         ]);
         const keyData = await keyRes.json();
         const pill = document.getElementById('provider-pill');
-        pill.textContent = keyData.configured
-          ? `🟢 Live AI: ${keyData.provider.toUpperCase()} (${keyData.model})`
-          : '🟡 Offline Mock (Cài API Key trên Desktop để chấm bài thật)';
+        if (keyData.configured) {
+          const disp = keyData.provider_display_name || String(keyData.provider || '').toUpperCase();
+          const authBadge = keyData.auth_type === 'oauth' ? 'OAuth' : 'Key';
+          pill.textContent = `🟢 Live AI: ${disp} (${authBadge}) • ${keyData.model}`;
+        } else {
+          pill.textContent = '🟡 Offline Mock (Cài AI Auth Hub trên Desktop để chấm bài thật)';
+        }
 
         const exams = await examsRes.json();
         const sel = document.getElementById('exam-select');

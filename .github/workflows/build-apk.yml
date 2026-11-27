@@ -1,0 +1,66 @@
+name: Build EduMark AI Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      default_server_url:
+        description: 'Default EduMark AI Server URL'
+        required: false
+        default: 'https://y.tail03c7eb.ts.net'
+  push:
+    paths:
+      - 'mobile-app/**'
+      - '.github/workflows/build-apk.yml'
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Override default server URL if provided
+        if: ${{ inputs.default_server_url != '' }}
+        run: |
+          python3 -c "p='mobile-app/www/index.html'; s=open(p,encoding='utf-8').read().replace(\"const DEFAULT_SERVER_URL = 'https://y.tail03c7eb.ts.net';\", \"const DEFAULT_SERVER_URL = '${{ inputs.default_server_url }}';\"); open(p,'w',encoding='utf-8').write(s)"
+
+      - name: Install Capacitor dependencies
+        working-directory: mobile-app
+        run: npm install
+
+      - name: Generate Android project and patch permissions/icons
+        working-directory: mobile-app
+        run: |
+          npx cap add android
+          node scripts/configure-android.mjs
+          npx cap sync android
+
+      - name: Build Debug APK
+        working-directory: mobile-app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Package EduMarkAI.apk artifact
+        run: |
+          mkdir -p dist
+          cp mobile-app/android/app/build/outputs/apk/debug/app-debug.apk dist/EduMarkAI.apk
+          ls -lh dist/EduMarkAI.apk
+
+      - name: Upload EduMarkAI.apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: EduMarkAI-apk
+          path: dist/EduMarkAI.apk
+          retention-days: 30

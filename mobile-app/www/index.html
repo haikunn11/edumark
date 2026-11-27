@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>EduMark AI</title>
+  <style>
+    :root {
+      --bg: #DCE4EC;
+      --card: #FFFFFF;
+      --ink: #0F172A;
+      --muted: #475569;
+      --line: #CBD5E1;
+      --blue: #3382BF;
+      --blue-dark: #2563EB;
+      --green: #10B981;
+      --rose: #E11D48;
+      --amber: #F6AF2F;
+    }
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      width: 100%;
+      max-width: 420px;
+      background: var(--card);
+      border-radius: 24px;
+      padding: 26px 22px;
+      box-shadow: 0 20px 50px -20px rgba(15, 23, 42, 0.25);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .logo-badge {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      background: var(--blue);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+    h1 { margin: 0; font-size: 20px; font-weight: 800; }
+    .sub { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+    .spinner-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      padding: 22px 8px 10px;
+      gap: 12px;
+    }
+    .spinner {
+      width: 34px;
+      height: 34px;
+      border: 3.5px solid #E2E8F0;
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 6px; }
+    input[type="url"] {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1.5px solid var(--line);
+      font-size: 14px;
+      color: var(--ink);
+      background: #F8FAFC;
+      outline: none;
+    }
+    input[type="url"]:focus { border-color: var(--blue); background: #fff; }
+    .quick-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .chip-btn {
+      flex: 1;
+      min-width: 120px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: #F1F5F9;
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .primary-btn {
+      width: 100%;
+      margin-top: 14px;
+      padding: 13px 16px;
+      border: 0;
+      border-radius: 14px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .primary-btn:disabled { opacity: 0.65; }
+    .msg {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      line-height: 1.45;
+      display: none;
+    }
+    .msg.err { display: block; background: #FFF1F2; color: var(--rose); border: 1px solid #FECDD3; }
+    .msg.ok { display: block; background: #ECFDF5; color: #047857; border: 1px solid #A7F3D0; }
+    .hint {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid #E2E8F0;
+      font-size: 11.5px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">
+      <div class="logo-badge">E</div>
+      <div>
+        <h1>EduMark AI</h1>
+        <p class="sub">Chụp &amp; Chấm bài tự luận viết tay</p>
+      </div>
+    </div>
+
+    <div id="view-connecting" class="spinner-box">
+      <div class="spinner"></div>
+      <div style="font-size:14px;font-weight:700;" id="conn-title">Đang kết nối tới Server EduMark AI...</div>
+      <div style="font-size:12px;color:#475569;word-break:break-all;" id="conn-url"></div>
+      <button type="button" class="chip-btn" style="margin-top:6px;flex:none;padding:8px 14px;" onclick="showSettings('')">Đổi địa chỉ Server</button>
+    </div>
+
+    <div id="view-settings" class="hidden">
+      <label for="server-url-input">Địa chỉ Server EduMark AI (HTTPS hoặc LAN)</label>
+      <input id="server-url-input" type="url" placeholder="https://y.tail03c7eb.ts.net" autocomplete="off" />
+
+      <div class="quick-row">
+        <button type="button" class="chip-btn" onclick="fillPreset('https://y.tail03c7eb.ts.net')">Tailscale HTTPS mặc định</button>
+        <button type="button" class="chip-btn" onclick="fillPreset('http://192.168.1.45:8000')">LAN nội bộ (:8000)</button>
+      </div>
+
+      <button type="button" id="btn-connect" class="primary-btn" onclick="connectAndOpen()">Kiểm tra &amp; Mở App</button>
+
+      <div id="status-msg" class="msg"></div>
+
+      <div class="hint">
+        <strong>Mẹo kết nối:</strong> Nếu không vào được, hãy kiểm tra máy tính đang chạy server EduMark AI (cổng <code>8000</code>) và bật Tailscale Funnel (<code>https://y.tail03c7eb.ts.net</code>) hoặc điền link Server Cloud nếu đã deploy.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const DEFAULT_SERVER_URL = 'https://y.tail03c7eb.ts.net';
+    const STORAGE_KEY = 'edumark_server_url';
+
+    function normalizeUrl(raw) {
+      let s = (raw || '').trim().replace(/\/+$/, '');
+      if (!s) return DEFAULT_SERVER_URL;
+      if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+      return s;
+    }
+
+    function savedUrl() {
+      try {
+        return normalizeUrl(localStorage.getItem(STORAGE_KEY) || DEFAULT_SERVER_URL);
+      } catch (e) {
+        return DEFAULT_SERVER_URL;
+      }
+    }
+
+    function saveUrl(url) {
+      try { localStorage.setItem(STORAGE_KEY, url); } catch (e) {}
+    }
+
+    function fillPreset(url) {
+      document.getElementById('server-url-input').value = url;
+    }
+
+    function showSettings(errText) {
+      document.getElementById('view-connecting').classList.add('hidden');
+      document.getElementById('view-settings').classList.remove('hidden');
+      document.getElementById('server-url-input').value = savedUrl();
+      const msg = document.getElementById('status-msg');
+      if (errText) {
+        msg.className = 'msg err';
+        msg.textContent = errText;
+      } else {
+        msg.className = 'msg';
+        msg.textContent = '';
+      }
+    }
+
+    async function pingServer(baseUrl) {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 5000);
+      try {
+        const res = await fetch(baseUrl + '/health', { method: 'GET', cache: 'no-store', signal: ctrl.signal });
+        return res.ok;
+      } finally {
+        clearTimeout(t);
+      }
+    }
+
+    function openApp(baseUrl) {
+      window.location.replace(baseUrl + '/app?from=apk');
+    }
+
+    async function connectAndOpen() {
+      const btn = document.getElementById('btn-connect');
+      const msg = document.getElementById('status-msg');
+      const url = normalizeUrl(document.getElementById('server-url-input').value);
+      btn.disabled = true;
+      btn.textContent = 'Đang kiểm tra kết nối...';
+      msg.className = 'msg';
+      try {
+        const ok = await pingServer(url);
+        if (!ok) throw new Error('Server phản hồi lỗi.');
+        saveUrl(url);
+        msg.className = 'msg ok';
+        msg.textContent = 'Kết nối thành công! Đang mở EduMark AI...';
+        openApp(url);
+      } catch (err) {
+        showSettings('Không kết nối được tới ' + url + '. Hãy kiểm tra server trên máy tính đang bật hoặc thử link LAN/Cloud.');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Kiểm tra & Mở App';
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      const qp = new URLSearchParams(window.location.search);
+      if (qp.get('change') === '1') {
+        showSettings('');
+        return;
+      }
+      const target = savedUrl();
+      document.getElementById('conn-url').textContent = target;
+      try {
+        const ok = await pingServer(target);
+        if (ok) {
+          openApp(target);
+          return;
+        }
+        showSettings('Server ' + target + ' chưa phản hồi. Vui lòng bật server hoặc đổi địa chỉ khác.');
+      } catch (e) {
+        showSettings('Không liên lạc được tới ' + target + '. Hãy kiểm tra kết nối mạng / server.');
+      }
+    });
+  </script>
+</body>
+</html>

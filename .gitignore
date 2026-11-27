@@ -21,3 +21,8 @@ certs/
 .agents/
 .claude/
 brain4agent/
+# Android APK build artifacts & Capacitor generated native project
+dist/
+mobile-app/node_modules/
+mobile-app/android/
+*.apk
