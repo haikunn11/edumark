@@ -231,25 +231,18 @@ def _offline_parse_exam_text(exam_text: str, title: str, grade: int, total_point
 
 
 def _active_provider() -> str:
-    has_openai = reasoning_agent.has_openai_live
-    has_gemini = reasoning_agent.has_gemini_live
-    pref = (settings.AI_PROVIDER or "gemini").lower()
-    if pref == "gemini" and has_gemini:
-        return "gemini"
-    if pref == "openai" and has_openai:
-        return "openai"
-    if has_gemini:
-        return "gemini"
-    if has_openai:
-        return "openai"
-    return "mock"
+    return reasoning_agent._active_provider()
 
 
 def _call_gemini_rubric(prompt: str, image_pages: list[bytes]) -> str:
-    from google import genai
     from google.genai import types
+    from backend.app.services.provider_auth import build_gemini_client
 
-    client = genai.Client(api_key=reasoning_agent.api_key)
+    client = build_gemini_client(
+        api_key=reasoning_agent.api_key,
+        oauth_credentials=reasoning_agent.gemini_oauth_credentials,
+        account_id=reasoning_agent.active_account_id,
+    )
     contents: list = [prompt]
     for img_b in image_pages:
         opt_b = _resize_for_vision_api(img_b, max_side=2000)
@@ -304,20 +297,35 @@ def _call_gemini_rubric(prompt: str, image_pages: list[bytes]) -> str:
 
 
 def _call_openai_rubric(prompt: str, image_pages: list[bytes]) -> str:
-    from openai import OpenAI
+    from backend.app.services.provider_auth import build_openai_client
 
-    client = OpenAI(api_key=reasoning_agent.openai_api_key, timeout=60.0)
+    client = build_openai_client(
+        api_key=reasoning_agent.openai_api_key,
+        base_url=reasoning_agent.openai_base_url,
+        extra_headers=reasoning_agent.openai_extra_headers,
+        timeout=60.0,
+    )
     content_blocks: list[dict] = [{"type": "text", "text": prompt}]
     for img_b in image_pages:
         b64 = base64.b64encode(_resize_for_vision_api(img_b, max_side=2000)).decode("utf-8")
         content_blocks.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}})
 
-    resp = client.chat.completions.create(
-        model=settings.DEFAULT_OPENAI_MODEL,
-        messages=[{"role": "user", "content": content_blocks}],
-        response_format={"type": "json_object"},
-        temperature=0.0,
-    )
+    model = reasoning_agent.openai_model or settings.DEFAULT_OPENAI_MODEL
+    kwargs: dict = {
+        "model": model,
+        "messages": [{"role": "user", "content": content_blocks}],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.0,
+    }
+    try:
+        resp = client.chat.completions.create(**kwargs)
+    except Exception as exc:
+        err_s = str(exc).lower()
+        if "response_format" in err_s or "400" in err_s or "json_object" in err_s:
+            kwargs.pop("response_format", None)
+            resp = client.chat.completions.create(**kwargs)
+        else:
+            raise
     return resp.choices[0].message.content or ""
 
 

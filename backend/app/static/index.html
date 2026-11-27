@@ -625,36 +625,158 @@
     </div>
   </div>
 
-  <!-- API Key Modal (Cài đặt OpenAI / Gemini Key) -->
+  <!-- AI Provider Auth Hub Modal (v0.8: OAuth + Multi-Account + Auth Log) -->
   <div id="api-key-modal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl">
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2">
-          <i class="fa-solid fa-key text-amber-400"></i> Cấu hình AI API Key (OpenAI / Gemini)
-        </h3>
+        <div>
+          <h3 class="text-base font-bold text-slate-100 flex items-center gap-2">
+            <i class="fa-solid fa-shield-halved text-amber-400"></i> AI Provider Auth Hub
+          </h3>
+          <p class="text-[11px] text-slate-400 mt-0.5">Đăng nhập OAuth hoặc quản lý đa tài khoản API Key · Chỉ chạy đúng tài khoản đang Active</p>
+        </div>
         <button onclick="closeApiKeyModal()" class="text-slate-400 hover:text-slate-100"><i class="fa-solid fa-xmark"></i></button>
       </div>
 
-      <div class="space-y-4 text-xs">
-        <div class="bg-indigo-950/40 border border-indigo-800/60 p-3 rounded-lg text-indigo-300 leading-relaxed">
-          <i class="fa-solid fa-circle-info mr-1"></i> Hệ thống hỗ trợ <strong>OpenAI (gpt-4o-mini ngon-bổ-rẻ)</strong> hoặc <strong>Google Gemini</strong> để đọc mọi nét chữ viết tay thật và chấm điểm chuẩn xác theo Barem.
+      <div class="flex items-center gap-2 border-b border-slate-700 pb-3 mb-4 text-xs">
+        <button id="auth-tab-btn-accounts" onclick="switchAuthTab('accounts')" class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white font-semibold flex items-center gap-1.5">
+          <i class="fa-solid fa-users-gear"></i> Tài khoản AI
+        </button>
+        <button id="auth-tab-btn-connect" onclick="switchAuthTab('connect')" class="px-3 py-1.5 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 font-semibold flex items-center gap-1.5">
+          <i class="fa-solid fa-plug-circle-plus"></i> Kết nối / Đăng nhập
+        </button>
+        <button id="auth-tab-btn-logs" onclick="switchAuthTab('logs')" class="px-3 py-1.5 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 font-semibold flex items-center gap-1.5">
+          <i class="fa-solid fa-clipboard-list"></i> Nhật ký Auth
+        </button>
+      </div>
+
+      <div id="api-key-msg" class="hidden p-2.5 rounded-lg text-xs mb-3"></div>
+
+      <!-- Tab 1: Tài khoản AI -->
+      <div id="auth-tab-accounts" class="space-y-3 text-xs">
+        <div id="auth-active-summary" class="bg-slate-900/70 border border-slate-700 rounded-xl p-3 text-slate-300">
+          Đang tải thông tin tài khoản AI...
         </div>
-
-        <div>
-          <label class="block font-medium text-slate-300 mb-1">Dán API Key của bạn (OpenAI sk-... hoặc Gemini AIza...):</label>
-          <input type="password" id="input-api-key" placeholder="sk-... hoặc AIza..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 font-mono focus:outline-none focus:border-indigo-500" />
-          <p class="text-[11px] text-slate-400 mt-1">
-            Hỗ trợ tự động nhận diện OpenAI và Google Gemini.
-          </p>
-        </div>
-
-        <div id="api-key-msg" class="hidden p-2.5 rounded-lg text-xs"></div>
-
-        <div class="flex justify-end gap-2 pt-2">
-          <button onclick="closeApiKeyModal()" class="px-3.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-medium">Đóng</button>
-          <button onclick="saveApiKey()" id="btn-save-key" class="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5">
-            <i class="fa-solid fa-floppy-disk"></i> Lưu & Kích hoạt AI
+        <div id="auth-accounts-list" class="space-y-2.5 max-h-[340px] overflow-y-auto custom-scrollbar pr-1"></div>
+        <div class="flex justify-between items-center pt-2">
+          <button onclick="switchAuthTab('connect')" class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold flex items-center gap-1.5">
+            <i class="fa-solid fa-plus"></i> Thêm / Đăng nhập tài khoản mới
           </button>
+          <button onclick="closeApiKeyModal()" class="px-3.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium">Đóng</button>
+        </div>
+      </div>
+
+      <!-- Tab 2: Kết nối / Đăng nhập -->
+      <div id="auth-tab-connect" class="hidden space-y-4 text-xs">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="bg-slate-900/70 border border-indigo-700/60 rounded-xl p-3.5 space-y-2">
+            <div class="flex items-center justify-between">
+              <strong class="text-slate-100">OpenRouter OAuth</strong>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950/70 text-emerald-300 border border-emerald-700/60">1-Click PKCE</span>
+            </div>
+            <p class="text-[11px] text-slate-400">Đăng nhập trực tiếp bằng trình duyệt (không cần tạo Cloud App). Dùng chung Gemini, GPT-4o, Qwen, DeepSeek.</p>
+            <button onclick="startProviderOAuth('openrouter')" class="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold flex items-center justify-center gap-1.5">
+              <i class="fa-solid fa-arrow-up-right-from-square"></i> Đăng nhập OpenRouter
+            </button>
+          </div>
+
+          <div class="bg-slate-900/70 border border-sky-700/60 rounded-xl p-3.5 space-y-2">
+            <div class="flex items-center justify-between">
+              <strong class="text-slate-100">Google Gemini OAuth 2.0</strong>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-950/70 text-sky-300 border border-sky-700/60">Auto Refresh</span>
+            </div>
+            <p class="text-[11px] text-slate-400">Đăng nhập tài khoản Google có bật Generative Language API &amp; tự gia hạn refresh_token.</p>
+            <button onclick="startProviderOAuth('gemini')" class="w-full py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold flex items-center justify-center gap-1.5">
+              <i class="fa-brands fa-google"></i> Đăng nhập Google Gemini
+            </button>
+            <details class="pt-1">
+              <summary class="cursor-pointer text-[11px] text-slate-400 hover:text-slate-200">Cấu hình Google OAuth Client &amp; Redirect URI</summary>
+              <div class="mt-2 space-y-2">
+                <input type="text" id="auth-google-client-id" placeholder="Google OAuth Client ID (nếu chưa đặt trong .env)" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-100 font-mono" />
+                <input type="password" id="auth-google-client-secret" placeholder="Google OAuth Client Secret" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-100 font-mono" />
+                <div class="text-[10px] text-slate-400 break-all">
+                  Redirect URI: <code id="auth-google-redirect-uri" class="text-indigo-300">/api/v1/auth/providers/gemini/callback</code>
+                </div>
+              </div>
+            </details>
+          </div>
+        </div>
+
+        <div class="border-t border-slate-700 pt-4 space-y-3">
+          <div class="font-bold text-slate-200 flex items-center gap-1.5">
+            <i class="fa-solid fa-key text-amber-400"></i> Hoặc thêm tài khoản bằng API Key / Endpoint nội bộ
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block font-medium text-slate-300 mb-1">Nhà cung cấp (Provider)</label>
+              <select id="auth-provider-select" onchange="onAuthProviderChange()" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500">
+                <option value="gemini">Google Gemini (AIza...)</option>
+                <option value="openai">OpenAI (sk-...)</option>
+                <option value="openrouter">OpenRouter (sk-or-...)</option>
+                <option value="groq">Groq Cloud (gsk_...)</option>
+                <option value="deepseek">DeepSeek (sk-...)</option>
+                <option value="custom">Custom / Ollama / vLLM</option>
+              </select>
+            </div>
+            <div>
+              <label class="block font-medium text-slate-300 mb-1">Tên gợi nhớ tài khoản</label>
+              <input type="text" id="auth-label-input" placeholder="Ví dụ: Tài khoản Gemini Trường / Cá nhân" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500" />
+            </div>
+          </div>
+
+          <div>
+            <label class="block font-medium text-slate-300 mb-1">API Key (để trống nếu dùng Ollama / Local không cần key):</label>
+            <input type="password" id="input-api-key" placeholder="sk-... hoặc AIza... hoặc sk-or-..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 font-mono focus:outline-none focus:border-indigo-500" />
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div>
+              <label class="block font-medium text-slate-300 mb-1">Base URL (tùy chọn)</label>
+              <input type="text" id="auth-base-url-input" placeholder="https://..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-100 font-mono" />
+            </div>
+            <div>
+              <label class="block font-medium text-slate-300 mb-1">Model Đọc ảnh (OCR)</label>
+              <input type="text" id="auth-vision-model-input" placeholder="gemini-3.1-flash-lite" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-100 font-mono" />
+            </div>
+            <div>
+              <label class="block font-medium text-slate-300 mb-1">Model Chấm luận lý</label>
+              <input type="text" id="auth-reasoning-model-input" placeholder="gemini-3-flash-preview" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-100 font-mono" />
+            </div>
+          </div>
+
+          <label class="inline-flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
+            <input type="checkbox" id="auth-verify-live-chk" class="accent-indigo-500" />
+            <span>Kiểm tra ping kết nối thực trước khi lưu tài khoản</span>
+          </label>
+
+          <div class="flex justify-end gap-2 pt-1">
+            <button onclick="closeApiKeyModal()" class="px-3.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-medium">Đóng</button>
+            <button onclick="saveApiKey()" id="btn-save-key" class="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5">
+              <i class="fa-solid fa-floppy-disk"></i> Lưu &amp; Kích hoạt AI
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 3: Nhật ký Auth Log -->
+      <div id="auth-tab-logs" class="hidden space-y-3 text-xs">
+        <div class="flex items-center justify-between gap-2">
+          <select id="auth-log-filter" onchange="loadAuthProviderLogs()" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100">
+            <option value="">Tất cả nhà cung cấp</option>
+            <option value="openrouter">OpenRouter</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="openai">OpenAI</option>
+            <option value="groq">Groq</option>
+            <option value="deepseek">DeepSeek</option>
+            <option value="custom">Custom / Ollama</option>
+          </select>
+          <button onclick="loadAuthProviderLogs()" class="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 font-medium flex items-center gap-1.5">
+            <i class="fa-solid fa-rotate"></i> Làm mới log
+          </button>
+        </div>
+        <div id="auth-logs-list" class="space-y-2 max-h-[360px] overflow-y-auto custom-scrollbar pr-1"></div>
+        <div class="flex justify-end pt-1">
+          <button onclick="closeApiKeyModal()" class="px-3.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-medium">Đóng</button>
         </div>
       </div>
     </div>
@@ -768,8 +890,19 @@
     });
 
     let isKeyConfigured = false;
+    let authProviderCatalog = {};
 
-    // Check API Key Status on Load
+    function showAuthMessage(ok, text) {
+      const msgBox = document.getElementById('api-key-msg');
+      if (!msgBox) return;
+      msgBox.className = ok
+        ? 'p-2.5 rounded-lg text-xs mb-3 bg-emerald-950/60 border border-emerald-800 text-emerald-300'
+        : 'p-2.5 rounded-lg text-xs mb-3 bg-rose-950/60 border border-rose-800 text-rose-300';
+      msgBox.textContent = text;
+      msgBox.classList.remove('hidden');
+    }
+
+    // Check API Key / Provider Account Status on Load
     async function checkApiKeyStatus() {
       try {
         const res = await fetch('/api/v1/config/key-status');
@@ -780,8 +913,11 @@
         isKeyConfigured = Boolean(data.configured);
         if (data.configured) {
           dot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
-          const providerName = data.provider === 'openai' ? `OpenAI (${data.model})` : 'Gemini AI';
-          label.textContent = `${providerName} Sẵn sàng`;
+          const disp = data.provider_display_name || (data.provider === 'openai' ? 'OpenAI' : String(data.provider || 'AI').toUpperCase());
+          const authBadge = data.auth_type === 'oauth' ? 'OAuth' : 'Key';
+          label.textContent = data.account_label
+            ? `${disp} (${authBadge}) · Sẵn sàng`
+            : `${disp} Sẵn sàng`;
           label.className = 'text-emerald-300 font-mono text-[11px]';
           if (banner) banner.classList.add('hidden');
         } else {
@@ -795,8 +931,215 @@
       }
     }
 
-    function openApiKeyModal() {
+    function switchAuthTab(tabName) {
+      ['accounts', 'connect', 'logs'].forEach((t) => {
+        const panel = document.getElementById(`auth-tab-${t}`);
+        const btn = document.getElementById(`auth-tab-btn-${t}`);
+        if (panel) panel.classList.toggle('hidden', t !== tabName);
+        if (btn) {
+          btn.className = t === tabName
+            ? 'px-3 py-1.5 rounded-lg bg-indigo-600 text-white font-semibold flex items-center gap-1.5'
+            : 'px-3 py-1.5 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 font-semibold flex items-center gap-1.5';
+        }
+      });
+      if (tabName === 'accounts') loadAuthProviderAccounts();
+      if (tabName === 'logs') loadAuthProviderLogs();
+    }
+
+    async function loadAuthProviderCatalog() {
+      try {
+        const res = await fetch('/api/v1/auth/providers/catalog');
+        const data = await res.json();
+        authProviderCatalog = {};
+        (data.providers || []).forEach((p) => {
+          authProviderCatalog[p.provider] = p;
+          if (p.provider === 'gemini' && p.redirect_uri) {
+            const el = document.getElementById('auth-google-redirect-uri');
+            if (el) el.textContent = p.redirect_uri;
+          }
+        });
+        onAuthProviderChange();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function onAuthProviderChange() {
+      const sel = document.getElementById('auth-provider-select');
+      if (!sel) return;
+      const preset = authProviderCatalog[sel.value] || {};
+      const baseEl = document.getElementById('auth-base-url-input');
+      const vEl = document.getElementById('auth-vision-model-input');
+      const rEl = document.getElementById('auth-reasoning-model-input');
+      if (baseEl) baseEl.value = preset.default_base_url || '';
+      if (vEl) vEl.value = preset.default_vision_model || '';
+      if (rEl) rEl.value = preset.default_reasoning_model || '';
+    }
+
+    async function loadAuthProviderAccounts() {
+      const summary = document.getElementById('auth-active-summary');
+      const listEl = document.getElementById('auth-accounts-list');
+      if (!summary || !listEl) return;
+      try {
+        const res = await fetch('/api/v1/auth/providers/accounts');
+        const data = await res.json();
+        const active = data.active_account;
+        const accounts = data.accounts || [];
+        if (active) {
+          summary.innerHTML = `<div class="flex items-center justify-between gap-2">
+            <div><span class="text-[10px] uppercase tracking-wider text-emerald-400 font-bold">Đang hoạt động (Active)</span>
+            <div class="text-sm font-bold text-slate-100 mt-0.5">${escapeHtml(active.label)}</div>
+            <div class="text-[11px] text-slate-400">${escapeHtml(active.provider_display_name)} · ${escapeHtml(active.auth_type.toUpperCase())} · OCR: <code>${escapeHtml(active.vision_model)}</code> · Chấm: <code>${escapeHtml(active.reasoning_model)}</code></div></div>
+            <span class="px-2.5 py-1 rounded-full bg-emerald-950/70 border border-emerald-700 text-emerald-300 font-mono text-[11px]">${escapeHtml(active.secret_masked)}</span>
+          </div>`;
+        } else {
+          summary.innerHTML = `<div class="text-slate-300">Chưa có tài khoản AI nào được lưu trong Auth Hub (hệ thống dùng cấu hình <code>.env</code> hoặc Mock nếu chưa có key).</div>`;
+        }
+
+        if (!accounts.length) {
+          listEl.innerHTML = `<div class="text-center py-6 text-slate-400 bg-slate-900/40 rounded-xl border border-dashed border-slate-700">Chưa có tài khoản nào. Bấm <strong>Kết nối / Đăng nhập</strong> để thêm OpenRouter, Gemini hoặc OpenAI.</div>`;
+          return;
+        }
+        listEl.innerHTML = accounts.map((a) => `
+          <div class="rounded-xl border ${a.is_active ? 'border-emerald-600/70 bg-emerald-950/20' : 'border-slate-700 bg-slate-900/50'} p-3 flex flex-wrap items-center justify-between gap-2">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <strong class="text-slate-100 truncate">${escapeHtml(a.label)}</strong>
+                <span class="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-indigo-300 font-mono">${escapeHtml(a.provider)}/${escapeHtml(a.auth_type)}</span>
+                ${a.is_active ? '<span class="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold">Active</span>' : ''}
+              </div>
+              <div class="text-[11px] text-slate-400 mt-0.5 truncate">
+                ${escapeHtml(a.secret_masked)} · OCR: <code>${escapeHtml(a.vision_model)}</code>${a.account_email ? ' · ' + escapeHtml(a.account_email) : ''}
+              </div>
+              ${a.last_error ? `<div class="text-[11px] text-rose-400 mt-0.5 truncate">${escapeHtml(a.last_error)}</div>` : ''}
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0">
+              ${a.is_active ? '' : `<button onclick="activateProviderAccount('${escapeHtml(a.account_id)}')" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-semibold">Kích hoạt</button>`}
+              <button onclick="testProviderAccount('${escapeHtml(a.account_id)}')" class="px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-[11px]">Kiểm tra</button>
+              <button onclick="deleteProviderAccount('${escapeHtml(a.account_id)}')" class="px-2.5 py-1 rounded-lg bg-rose-950/70 hover:bg-rose-800 text-rose-300 text-[11px]">Xóa</button>
+            </div>
+          </div>
+        `).join('');
+      } catch (e) {
+        summary.textContent = 'Lỗi tải danh sách tài khoản AI.';
+      }
+    }
+
+    async function activateProviderAccount(accountId) {
+      const res = await fetch(`/api/v1/auth/providers/accounts/${encodeURIComponent(accountId)}/activate`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        showAuthMessage(true, `Đã kích hoạt tài khoản ${data.account?.label || accountId}.`);
+        checkApiKeyStatus();
+        loadAuthProviderAccounts();
+      } else {
+        showAuthMessage(false, data.detail?.message || data.detail || 'Không thể kích hoạt tài khoản.');
+      }
+    }
+
+    async function testProviderAccount(accountId) {
+      showAuthMessage(true, 'Đang gửi ping kiểm tra kết nối thực tới AI Provider...');
+      const res = await fetch(`/api/v1/auth/providers/accounts/${encodeURIComponent(accountId)}/test`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        showAuthMessage(true, data.message || 'Kết nối thành công!');
+      } else {
+        showAuthMessage(false, data.message || data.detail?.message || 'Kiểm tra kết nối thất bại.');
+      }
+      loadAuthProviderAccounts();
+    }
+
+    async function deleteProviderAccount(accountId) {
+      const res = await fetch(`/api/v1/auth/providers/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' });
+      if (res.ok) {
+        showAuthMessage(true, 'Đã xóa tài khoản khỏi Auth Hub.');
+        checkApiKeyStatus();
+        loadAuthProviderAccounts();
+      }
+    }
+
+    async function loadAuthProviderLogs() {
+      const listEl = document.getElementById('auth-logs-list');
+      const filterEl = document.getElementById('auth-log-filter');
+      if (!listEl) return;
+      const prov = filterEl ? filterEl.value : '';
+      const url = `/api/v1/auth/providers/logs?limit=60${prov ? '&provider=' + encodeURIComponent(prov) : ''}`;
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        const logs = data.logs || [];
+        if (!logs.length) {
+          listEl.innerHTML = '<div class="text-center py-6 text-slate-400">Chưa có sự kiện nhật ký Auth nào.</div>';
+          return;
+        }
+        listEl.innerHTML = logs.map((lg) => {
+          const stCls = lg.status === 'success'
+            ? 'bg-emerald-950/70 text-emerald-300 border-emerald-800'
+            : (lg.status === 'failed' ? 'bg-rose-950/70 text-rose-300 border-rose-800' : 'bg-amber-950/70 text-amber-300 border-amber-800');
+          return `<div class="rounded-xl bg-slate-900/60 border border-slate-700/80 p-2.5 flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="px-1.5 py-0.5 rounded bg-slate-800 font-mono text-[10px] text-indigo-300">${escapeHtml(lg.provider)}</span>
+                <strong class="text-slate-200 text-[11px] font-mono">${escapeHtml(lg.event_type)}</strong>
+                <span class="px-2 py-0.5 rounded-full border text-[10px] font-semibold ${stCls}">${escapeHtml(lg.status)}</span>
+              </div>
+              <div class="text-[11px] text-slate-300 mt-1 break-words">${escapeHtml(lg.detail)}</div>
+            </div>
+            <div class="text-[10px] text-slate-500 font-mono text-right shrink-0">
+              <div>${escapeHtml((lg.created_at || '').replace('T', ' ').slice(0, 19))}</div>
+              ${lg.client_ip ? `<div>${escapeHtml(lg.client_ip)}</div>` : ''}
+            </div>
+          </div>`;
+        }).join('');
+      } catch (e) {
+        listEl.innerHTML = '<div class="text-rose-400">Lỗi tải nhật ký Auth.</div>';
+      }
+    }
+
+    async function startProviderOAuth(provider) {
+      try {
+        const payload = { provider };
+        if (provider === 'gemini') {
+          payload.client_id = (document.getElementById('auth-google-client-id')?.value || '').trim();
+          payload.client_secret = (document.getElementById('auth-google-client-secret')?.value || '').trim();
+        }
+        const res = await fetch('/api/v1/auth/providers/oauth/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail?.message || data.detail || 'Không thể khởi tạo OAuth');
+        }
+        const popup = window.open(data.auth_url, 'edumark_provider_oauth', 'width=560,height=720');
+        if (!popup) {
+          showAuthMessage(false, `Trình duyệt chặn popup. Vui lòng cho phép popup hoặc mở: ${data.auth_url}`);
+        } else {
+          showAuthMessage(true, `Đã mở cửa sổ đăng nhập ${provider.toUpperCase()}. Hoàn tất đăng nhập để tự kích hoạt.`);
+        }
+      } catch (err) {
+        showAuthMessage(false, err.message);
+      }
+    }
+
+    window.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'edumark-provider-auth') {
+        if (event.data.ok) {
+          showAuthMessage(true, `Đăng nhập ${event.data.provider?.toUpperCase()} thành công và đã kích hoạt!`);
+          checkApiKeyStatus();
+          switchAuthTab('accounts');
+        } else {
+          showAuthMessage(false, event.data.error || 'Đăng nhập OAuth thất bại.');
+          loadAuthProviderLogs();
+        }
+      }
+    });
+
+    function openApiKeyModal(tabName = 'accounts') {
       document.getElementById('api-key-modal').classList.remove('hidden');
+      loadAuthProviderCatalog();
+      switchAuthTab(tabName);
     }
 
     function closeApiKeyModal() {
@@ -805,39 +1148,49 @@
     }
 
     async function saveApiKey() {
+      const provider = (document.getElementById('auth-provider-select')?.value || 'gemini').trim();
       const key = document.getElementById('input-api-key').value.trim();
-      const msgBox = document.getElementById('api-key-msg');
+      const label = (document.getElementById('auth-label-input')?.value || '').trim();
+      const baseUrl = (document.getElementById('auth-base-url-input')?.value || '').trim();
+      const visionModel = (document.getElementById('auth-vision-model-input')?.value || '').trim();
+      const reasoningModel = (document.getElementById('auth-reasoning-model-input')?.value || '').trim();
+      const verifyLive = Boolean(document.getElementById('auth-verify-live-chk')?.checked);
       const btn = document.getElementById('btn-save-key');
-      if (!key) {
-        msgBox.className = 'p-2.5 rounded-lg text-xs bg-rose-950/60 border border-rose-800 text-rose-300';
-        msgBox.textContent = 'Vui lòng nhập API key!';
-        msgBox.classList.remove('hidden');
+
+      if (provider !== 'custom' && !key) {
+        showAuthMessage(false, 'Vui lòng nhập API key!');
         return;
       }
 
       btn.disabled = true;
-      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang xác thực...';
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang lưu...';
 
       try {
-        const res = await fetch('/api/v1/config/key', {
+        const res = await fetch('/api/v1/auth/providers/accounts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ api_key: key }),
+          body: JSON.stringify({
+            provider,
+            api_key: key,
+            label,
+            base_url: baseUrl,
+            vision_model: visionModel,
+            reasoning_model: reasoningModel,
+            activate: true,
+            verify_live: verifyLive,
+          }),
         });
         const data = await res.json();
         if (res.ok) {
-          msgBox.className = 'p-2.5 rounded-lg text-xs bg-emerald-950/60 border border-emerald-800 text-emerald-300';
-          msgBox.textContent = 'Đã xác thực và kích hoạt Gemini AI thành công! Giờ bạn có thể kéo ảnh vào để AI chấm.';
-          msgBox.classList.remove('hidden');
+          showAuthMessage(true, `Đã lưu và kích hoạt ${data.account?.label || provider} thành công!`);
+          document.getElementById('input-api-key').value = '';
           checkApiKeyStatus();
-          setTimeout(() => closeApiKeyModal(), 1800);
+          switchAuthTab('accounts');
         } else {
-          throw new Error(data.detail || 'Lỗi lưu key');
+          throw new Error(data.detail?.message || data.detail || 'Lỗi lưu tài khoản AI');
         }
       } catch (err) {
-        msgBox.className = 'p-2.5 rounded-lg text-xs bg-rose-950/60 border border-rose-800 text-rose-300';
-        msgBox.textContent = err.message;
-        msgBox.classList.remove('hidden');
+        showAuthMessage(false, err.message);
       } finally {
         btn.disabled = false;
         btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Lưu & Kích hoạt AI';

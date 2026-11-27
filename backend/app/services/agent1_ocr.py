@@ -346,6 +346,11 @@ class VisionOcrAgent:
     def __init__(self, api_key: str | None = None) -> None:
         self.api_key = api_key or settings.GEMINI_API_KEY
         self.openai_api_key = settings.OPENAI_API_KEY
+        self.openai_base_url: str = ""
+        self.openai_extra_headers: dict[str, str] = {}
+        self.active_provider_name: str = ""
+        self.active_account_id: str = ""
+        self.gemini_oauth_credentials: dict | None = None
         self.model_name = settings.DEFAULT_VISION_MODEL
         self.openai_model = settings.DEFAULT_OPENAI_MODEL
         self.last_usage: dict = {
@@ -359,17 +364,25 @@ class VisionOcrAgent:
 
     @property
     def has_openai_live(self) -> bool:
+        if self.active_provider_name == "custom" and self.openai_base_url:
+            return True
         return bool(self.openai_api_key and not self.openai_api_key.startswith("mock_"))
 
     @property
     def has_gemini_live(self) -> bool:
-        return bool(self.api_key and not self.api_key.startswith("mock_"))
+        has_key = bool(self.api_key and not self.api_key.startswith("mock_"))
+        has_oauth = bool(self.gemini_oauth_credentials and self.gemini_oauth_credentials.get("access_token"))
+        return has_key or has_oauth
 
     @property
     def is_live(self) -> bool:
-        return self.has_openai_live or self.has_gemini_live
+        return self._active_provider() != "mock"
 
     def _active_provider(self) -> str:
+        if self.active_provider_name:
+            if self.active_provider_name == "gemini":
+                return "gemini" if self.has_gemini_live else "mock"
+            return "openai" if self.has_openai_live else "mock"
         pref = (settings.AI_PROVIDER or "openai").lower()
         if pref == "gemini" and self.has_gemini_live:
             return "gemini"
@@ -380,6 +393,24 @@ class VisionOcrAgent:
         if self.has_gemini_live:
             return "gemini"
         return "mock"
+
+    def _openai_chat_json(self, client, messages: list[dict], max_tokens: int | None = None):
+        kwargs: dict = {
+            "model": self.openai_model,
+            "messages": messages,
+            "response_format": {"type": "json_object"},
+            "temperature": 0.0,
+        }
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+        try:
+            return client.chat.completions.create(**kwargs)
+        except Exception as exc:
+            err_s = str(exc).lower()
+            if "response_format" in err_s or "400" in err_s or "json_object" in err_s:
+                kwargs.pop("response_format", None)
+                return client.chat.completions.create(**kwargs)
+            raise
 
     def extract_latex(
         self,
@@ -474,10 +505,14 @@ TRẢ VỀ JSON OBJECT HỢP LỆ:
         hi_res = _resize_for_vision_api(image_bytes, max_side=2400)
         try:
             if provider == "gemini":
-                from google import genai
                 from google.genai import types
+                from backend.app.services.provider_auth import build_gemini_client
 
-                client = genai.Client(api_key=self.api_key)
+                client = build_gemini_client(
+                    api_key=self.api_key,
+                    oauth_credentials=self.gemini_oauth_credentials,
+                    account_id=self.active_account_id,
+                )
                 candidates = []
                 for m in (
                     self.model_name,
@@ -544,12 +579,17 @@ TRẢ VỀ JSON OBJECT HỢP LỆ:
 
             if provider == "openai":
                 import base64
-                from openai import OpenAI
+                from backend.app.services.provider_auth import build_openai_client
 
-                client = OpenAI(api_key=self.openai_api_key, timeout=45.0)
+                client = build_openai_client(
+                    api_key=self.openai_api_key,
+                    base_url=self.openai_base_url,
+                    extra_headers=self.openai_extra_headers,
+                    timeout=45.0,
+                )
                 b64 = base64.b64encode(hi_res).decode("utf-8")
-                resp = client.chat.completions.create(
-                    model=self.openai_model,
+                resp = self._openai_chat_json(
+                    client,
                     messages=[
                         {
                             "role": "user",
@@ -559,8 +599,6 @@ TRẢ VỀ JSON OBJECT HỢP LỆ:
                             ],
                         }
                     ],
-                    response_format={"type": "json_object"},
-                    temperature=0.0,
                 )
                 u = getattr(resp, "usage", None)
                 if u:
@@ -568,7 +606,7 @@ TRẢ VỀ JSON OBJECT HỢP LỆ:
                     out_t = int(getattr(u, "completion_tokens", 0) or 0)
                     usage_out.update(
                         {
-                            "provider": "openai",
+                            "provider": self.active_provider_name or "openai",
                             "model": self.openai_model,
                             "input_tokens": in_t,
                             "output_tokens": out_t,
@@ -614,10 +652,15 @@ TRẢ VỀ JSON OBJECT HỢP LỆ:
         max_retries: int = 3,
         usage_sink: dict | None = None,
     ) -> list[ExtractedQuestion]:
-        """Gọi OpenAI Vision API cho 1 hoặc nhiều trang kèm exponential backoff."""
-        from openai import OpenAI
+        """Gọi OpenAI / OpenAI-compatible Vision API cho 1 hoặc nhiều trang kèm exponential backoff."""
+        from backend.app.services.provider_auth import build_openai_client
 
-        client = OpenAI(api_key=self.openai_api_key, timeout=45.0)
+        client = build_openai_client(
+            api_key=self.openai_api_key,
+            base_url=self.openai_base_url,
+            extra_headers=self.openai_extra_headers,
+            timeout=45.0,
+        )
         user_content: list[dict] = [
             {
                 "type": "text",
@@ -642,14 +685,12 @@ TRẢ VỀ JSON OBJECT HỢP LỆ:
         last_exc: Exception | None = None
         for attempt in range(1, max_retries + 1):
             try:
-                resp = client.chat.completions.create(
-                    model=self.openai_model,
+                resp = self._openai_chat_json(
+                    client,
                     messages=[
                         {"role": "system", "content": FULL_PAGE_HANDWRITING_OCR_PROMPT},
                         {"role": "user", "content": user_content},
                     ],
-                    response_format={"type": "json_object"},
-                    temperature=0.0,
                     max_tokens=4096,
                 )
                 raw_content = resp.choices[0].message.content or ""
@@ -659,7 +700,7 @@ TRẢ VỀ JSON OBJECT HỢP LỆ:
                     out_t = int(getattr(usage, "completion_tokens", 0) or 0)
                     tot_t = int(getattr(usage, "total_tokens", in_t + out_t) or (in_t + out_t))
                     u = {
-                        "provider": "openai",
+                        "provider": self.active_provider_name or "openai",
                         "model": self.openai_model,
                         "input_tokens": in_t,
                         "output_tokens": out_t,
@@ -692,10 +733,14 @@ TRẢ VỀ JSON OBJECT HỢP LỆ:
         usage_sink: dict | None = None,
     ) -> list[ExtractedQuestion]:
         """Gọi Gemini Vision API kèm fallback tự động giữa các model khi gặp 503/429/404."""
-        from google import genai
         from google.genai import types
+        from backend.app.services.provider_auth import build_gemini_client
 
-        client = genai.Client(api_key=self.api_key)
+        client = build_gemini_client(
+            api_key=self.api_key,
+            oauth_credentials=self.gemini_oauth_credentials,
+            account_id=self.active_account_id,
+        )
         contents: list = []
         for idx, page_bytes in enumerate(pages_bytes, start=1):
             opt_bytes = _resize_for_vision_api(page_bytes)

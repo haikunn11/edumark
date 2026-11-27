@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
-from fastapi import APIRouter, BackgroundTasks, File, Form, Header, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, Response
+from html import escape as html_escape
+from fastapi import APIRouter, BackgroundTasks, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
 
 from backend.app.core.config import settings
@@ -49,6 +51,17 @@ from backend.app.services.gradebook import (
 )
 from backend.app.services.pipeline import grading_pipeline
 from backend.app.services.preprocessor import assess_capture_quality
+from backend.app.services.provider_auth import (
+    activate_account,
+    complete_google_oauth,
+    complete_openrouter_oauth,
+    create_or_update_api_key_account,
+    delete_account,
+    get_provider_catalog,
+    sanitize_account,
+    start_oauth_flow,
+    test_provider_account,
+)
 
 
 class FolderPathGradeRequest(BaseModel):
@@ -112,6 +125,26 @@ class FillBatchRequest(BaseModel):
     score_col: int | None = None
     note_col: int | None = None
     auto_append: bool = True
+
+
+class ProviderAccountCreateRequest(BaseModel):
+    provider: str
+    api_key: str = ""
+    label: str = ""
+    base_url: str = ""
+    vision_model: str = ""
+    reasoning_model: str = ""
+    activate: bool = True
+    verify_live: bool = False
+
+
+class OAuthStartRequest(BaseModel):
+    provider: str
+    label: str = ""
+    vision_model: str = ""
+    reasoning_model: str = ""
+    client_id: str = ""
+    client_secret: str = ""
 
 router = APIRouter()
 
@@ -280,43 +313,93 @@ def get_mobile_access_info() -> dict:
     }
 
 
+def _require_admin_guard(x_admin_token: str | None) -> None:
+    if settings.ADMIN_API_TOKEN or settings.ENVIRONMENT != "local":
+        expected = settings.ADMIN_API_TOKEN
+        if not expected or x_admin_token != expected:
+            raise HTTPException(
+                status_code=403,
+                detail={"error_code": "E007", "message": "Không có quyền thay đổi cấu hình AI Provider trên môi trường này."},
+            )
+
+
+def _resolve_public_origin(request: Request) -> str:
+    if (settings.PUBLIC_BASE_URL or "").strip():
+        return settings.PUBLIC_BASE_URL.strip().rstrip("/")
+    proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
+    host = (request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
+    if host:
+        return f"{proto or request.url.scheme}://{host}".rstrip("/")
+    return str(request.base_url).rstrip("/")
+
+
+def _client_ip(request: Request) -> str:
+    xff = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if xff:
+        return xff
+    return request.client.host if request.client else ""
+
+
 @router.get("/config/key-status")
 def get_key_status() -> dict:
+    from backend.app.services.agent1_ocr import vision_agent
+
+    accounts = db.list_provider_accounts()
+    active_acc = db.get_active_provider_account()
+    if active_acc:
+        san = sanitize_account(active_acc)
+        return {
+            "configured": vision_agent.is_live,
+            "provider": san["provider"],
+            "provider_display_name": san["provider_display_name"],
+            "model": san["vision_model"],
+            "vision_model": san["vision_model"],
+            "reasoning_model": san["reasoning_model"],
+            "active_account_id": san["account_id"],
+            "account_label": san["label"],
+            "auth_type": san["auth_type"],
+            "connected_count": len(accounts),
+        }
+
     has_openai = bool(settings.OPENAI_API_KEY and not settings.OPENAI_API_KEY.startswith("mock_"))
     has_gemini = bool(settings.GEMINI_API_KEY and not settings.GEMINI_API_KEY.startswith("mock_"))
     has_key = has_openai or has_gemini
     pref = (settings.AI_PROVIDER or "openai").lower()
     if pref == "gemini" and has_gemini:
         provider, model = "gemini", settings.DEFAULT_VISION_MODEL
+        disp = "Google Gemini"
     elif has_openai:
         provider, model = "openai", settings.DEFAULT_OPENAI_MODEL
+        disp = "OpenAI"
     elif has_gemini:
         provider, model = "gemini", settings.DEFAULT_VISION_MODEL
+        disp = "Google Gemini"
     else:
         provider, model = "mock", settings.DEFAULT_VISION_MODEL
+        disp = "Mock Offline"
 
     return {
         "configured": has_key,
         "provider": provider,
+        "provider_display_name": disp,
         "model": model,
         "vision_model": model,
-        "reasoning_model": model,
+        "reasoning_model": settings.DEFAULT_REASONING_MODEL if provider == "gemini" else model,
+        "active_account_id": "",
+        "account_label": "",
+        "auth_type": "api_key" if has_key else "mock",
+        "connected_count": len(accounts),
     }
 
 
 @router.post("/config/key")
 def update_api_key(
     req: dict,
+    request: Request,
     x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
 ) -> dict:
     """Lưu OpenAI hoặc Gemini API Key vào runtime & .env (có bảo vệ ADMIN_API_TOKEN ở staging/prod)."""
-    if settings.ADMIN_API_TOKEN or settings.ENVIRONMENT != "local":
-        expected = settings.ADMIN_API_TOKEN
-        if not expected or x_admin_token != expected:
-            raise HTTPException(
-                status_code=403,
-                detail={"error_code": "E007", "message": "Không có quyền thay đổi cấu hình API Key trên môi trường này."},
-            )
+    _require_admin_guard(x_admin_token)
 
     from backend.app.services.agent1_ocr import vision_agent
     from backend.app.services.agent2_grader import reasoning_agent
@@ -380,7 +463,23 @@ def update_api_key(
             )
         msg = f"Đã kích hoạt Google Gemini ({settings.DEFAULT_VISION_MODEL}) thành công!"
 
-    return {"status": "ok", "message": msg}
+    acct = create_or_update_api_key_account(
+        provider="openai" if is_openai else "gemini",
+        api_key=new_key,
+        label="OpenAI (Quick Key)" if is_openai else "Gemini (Quick Key)",
+        activate=True,
+        verify_live=False,
+        client_ip=_client_ip(request),
+    )
+    db.log_provider_auth_event(
+        provider="openai" if is_openai else "gemini",
+        event_type="legacy_key_updated",
+        status="success",
+        detail=f"Cập nhật key qua /config/key cho tài khoản {acct['label']}",
+        account_id=acct["account_id"],
+        client_ip=_client_ip(request),
+    )
+    return {"status": "ok", "message": msg, "account": acct}
 
 
 # --- Exam CRUD ---
@@ -1406,3 +1505,208 @@ def api_download_gradebook_excel(gradebook_id: str):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{safe_dl}"},
     )
+
+
+# --- AI Provider Auth Hub & Audit Logs (v0.8.0) ---
+def _oauth_popup_html(ok: bool, provider: str, account: dict | None = None, error: str = "") -> HTMLResponse:
+    payload = {
+        "type": "edumark-provider-auth",
+        "ok": ok,
+        "provider": provider,
+        "account": account,
+        "error": error,
+    }
+    payload_js = json.dumps(payload, ensure_ascii=False)
+    title_text = "Đăng nhập AI Provider thành công!" if ok else "Đăng nhập AI Provider thất bại"
+    sub_text = (
+        f"Đã kích hoạt tài khoản <strong>{html_escape(str((account or {}).get('label') or provider))}</strong>."
+        if ok
+        else html_escape(error or "Không thể hoàn tất xác thực OAuth.")
+    )
+    badge_color = "#10b981" if ok else "#f43f5e"
+    html = f"""<!DOCTYPE html>
+<html lang="vi">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title_text}</title></head>
+<body style="font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;">
+  <div style="max-width:440px;width:100%;background:#1e293b;border:1px solid #334155;border-radius:16px;padding:24px;text-align:center;">
+    <div style="width:48px;height:48px;border-radius:999px;background:{badge_color};color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;margin-bottom:14px;">{"✓" if ok else "!"}</div>
+    <h2 style="margin:0 0 8px;font-size:18px;">{title_text}</h2>
+    <p style="margin:0 0 18px;font-size:13px;color:#cbd5e1;line-height:1.5;">{sub_text}</p>
+    <a href="/" style="display:inline-block;padding:10px 18px;border-radius:10px;background:#4f46e5;color:#fff;text-decoration:none;font-size:13px;font-weight:600;">Quay lại EduMark AI</a>
+  </div>
+  <script>
+    (function() {{
+      var msg = {payload_js};
+      try {{
+        if (window.opener && !window.opener.closed) {{
+          window.opener.postMessage(msg, "*");
+        }}
+      }} catch (e) {{}}
+      if (msg.ok) {{
+        setTimeout(function() {{ try {{ window.close(); }} catch (e) {{}} }}, 1100);
+      }}
+    }})();
+  </script>
+</body>
+</html>"""
+    return HTMLResponse(content=html, status_code=200 if ok else 400)
+
+
+@router.get("/auth/providers/catalog")
+def api_get_provider_catalog(request: Request) -> dict:
+    origin = _resolve_public_origin(request)
+    catalog = get_provider_catalog()
+    for item in catalog:
+        if item.get("supports_oauth"):
+            item["redirect_uri"] = f"{origin}{settings.API_V1_STR}/auth/providers/{item['provider']}/callback"
+    return {"origin": origin, "providers": catalog}
+
+
+@router.get("/auth/providers/accounts")
+def api_list_provider_accounts() -> dict:
+    accounts = [sanitize_account(r) for r in db.list_provider_accounts()]
+    active = next((a for a in accounts if a["is_active"]), None)
+    return {"accounts": accounts, "active_account": active}
+
+
+@router.post("/auth/providers/accounts")
+def api_create_provider_account(
+    req: ProviderAccountCreateRequest,
+    request: Request,
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+) -> dict:
+    _require_admin_guard(x_admin_token)
+    try:
+        acct = create_or_update_api_key_account(
+            provider=req.provider,
+            api_key=req.api_key,
+            label=req.label,
+            base_url=req.base_url,
+            vision_model=req.vision_model,
+            reasoning_model=req.reasoning_model,
+            activate=req.activate,
+            verify_live=req.verify_live,
+            client_ip=_client_ip(request),
+        )
+        return {"status": "ok", "account": acct}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"error_code": "E001", "message": str(exc)})
+
+
+@router.post("/auth/providers/accounts/{account_id}/activate")
+def api_activate_provider_account(
+    account_id: str,
+    request: Request,
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+) -> dict:
+    _require_admin_guard(x_admin_token)
+    acct = activate_account(account_id, client_ip=_client_ip(request))
+    if not acct:
+        raise HTTPException(status_code=404, detail={"error_code": "E002", "message": f"Không tìm thấy tài khoản '{account_id}'."})
+    return {"status": "ok", "account": acct}
+
+
+@router.post("/auth/providers/accounts/{account_id}/test")
+def api_test_provider_account(
+    account_id: str,
+    request: Request,
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+) -> dict:
+    _require_admin_guard(x_admin_token)
+    try:
+        return test_provider_account(account_id, client_ip=_client_ip(request))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail={"error_code": "E002", "message": str(exc)})
+
+
+@router.delete("/auth/providers/accounts/{account_id}")
+def api_delete_provider_account(
+    account_id: str,
+    request: Request,
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+) -> dict:
+    _require_admin_guard(x_admin_token)
+    ok = delete_account(account_id, client_ip=_client_ip(request))
+    if not ok:
+        raise HTTPException(status_code=404, detail={"error_code": "E002", "message": f"Không tìm thấy tài khoản '{account_id}'."})
+    return {"status": "ok", "deleted": account_id}
+
+
+@router.post("/auth/providers/oauth/start")
+def api_start_provider_oauth(
+    req: OAuthStartRequest,
+    request: Request,
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+) -> dict:
+    _require_admin_guard(x_admin_token)
+    try:
+        return start_oauth_flow(
+            provider=req.provider,
+            base_origin=_resolve_public_origin(request),
+            label=req.label,
+            vision_model=req.vision_model,
+            reasoning_model=req.reasoning_model,
+            client_id=req.client_id,
+            client_secret=req.client_secret,
+            client_ip=_client_ip(request),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"error_code": "E001", "message": str(exc)})
+
+
+@router.get("/auth/providers/openrouter/callback")
+def api_openrouter_oauth_callback(
+    request: Request,
+    code: str = Query(default=""),
+    state: str = Query(default=""),
+    error: str = Query(default=""),
+) -> HTMLResponse:
+    if error:
+        db.log_provider_auth_event(
+            provider="openrouter",
+            event_type="oauth_callback_fail",
+            status="failed",
+            detail=f"OpenRouter trả về lỗi: {error}",
+            client_ip=_client_ip(request),
+        )
+        return _oauth_popup_html(False, "openrouter", error=f"OpenRouter từ chối: {error}")
+    if not code or not state:
+        return _oauth_popup_html(False, "openrouter", error="Thiếu mã xác thực (code/state) từ OpenRouter.")
+    try:
+        acct = complete_openrouter_oauth(code=code, state=state, client_ip=_client_ip(request))
+        return _oauth_popup_html(True, "openrouter", account=acct)
+    except ValueError as exc:
+        return _oauth_popup_html(False, "openrouter", error=str(exc))
+
+
+@router.get("/auth/providers/gemini/callback")
+def api_gemini_oauth_callback(
+    request: Request,
+    code: str = Query(default=""),
+    state: str = Query(default=""),
+    error: str = Query(default=""),
+) -> HTMLResponse:
+    if error:
+        db.log_provider_auth_event(
+            provider="gemini",
+            event_type="oauth_callback_fail",
+            status="failed",
+            detail=f"Google OAuth trả về lỗi: {error}",
+            client_ip=_client_ip(request),
+        )
+        return _oauth_popup_html(False, "gemini", error=f"Google OAuth từ chối: {error}")
+    if not code or not state:
+        return _oauth_popup_html(False, "gemini", error="Thiếu mã xác thực (code/state) từ Google.")
+    try:
+        acct = complete_google_oauth(code=code, state=state, client_ip=_client_ip(request))
+        return _oauth_popup_html(True, "gemini", account=acct)
+    except ValueError as exc:
+        return _oauth_popup_html(False, "gemini", error=str(exc))
+
+
+@router.get("/auth/providers/logs")
+def api_list_provider_auth_logs(
+    limit: int = Query(default=50, ge=1, le=500),
+    provider: str | None = Query(default=None),
+) -> dict:
+    return {"logs": db.list_provider_auth_logs(limit=limit, provider=provider or None)}

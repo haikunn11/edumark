@@ -20,7 +20,12 @@ def isolate_test_database(tmp_path_factory):
 @pytest.fixture(autouse=True)
 def isolate_offline_ai_agents(monkeypatch):
     """Đảm bảo pytest luôn chạy offline/deterministic, không gọi API trả phí ra ngoài mạng."""
-    monkeypatch.setattr(vision_agent, "openai_api_key", "")
-    monkeypatch.setattr(vision_agent, "api_key", "")
-    monkeypatch.setattr(reasoning_agent, "openai_api_key", "")
-    monkeypatch.setattr(reasoning_agent, "api_key", "")
+    for ag in (vision_agent, reasoning_agent):
+        monkeypatch.setattr(ag, "openai_api_key", "")
+        monkeypatch.setattr(ag, "api_key", "")
+        monkeypatch.setattr(ag, "active_provider_name", "")
+        monkeypatch.setattr(ag, "active_account_id", "")
+        monkeypatch.setattr(ag, "gemini_oauth_credentials", None)
+        monkeypatch.setattr(ag, "openai_base_url", "")
+        monkeypatch.setattr(ag, "openai_extra_headers", {})
+    db.deactivate_all_provider_accounts()

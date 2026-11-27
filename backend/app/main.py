@@ -9,12 +9,18 @@ from fastapi.responses import FileResponse, JSONResponse
 from backend.app.core.config import settings
 from backend.app.core.database import db
 from backend.app.api.routes import router as api_router
+from backend.app.services.provider_auth import sync_active_provider_to_runtime
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     description="Backbone API phục vụ Hệ thống Chấm bài Tự luận Viết tay Thông minh EduMark AI",
 )
+
+try:
+    sync_active_provider_to_runtime()
+except Exception as _sync_exc:
+    print(f"[EduMark Auth Sync Warning] {_sync_exc}")
 
 
 @app.exception_handler(Exception)

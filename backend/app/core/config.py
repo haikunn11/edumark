@@ -18,13 +18,17 @@ class Settings(BaseSettings):
     ADMIN_API_TOKEN: str = os.getenv("ADMIN_API_TOKEN", "")
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
 
-    # AI Model Settings
+    # AI Model & Provider Auth Settings
     AI_PROVIDER: str = os.getenv("AI_PROVIDER", "openai")  # "openai" hoặc "gemini"
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     DEFAULT_OPENAI_MODEL: str = os.getenv("DEFAULT_OPENAI_MODEL", "gpt-4o-mini")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     DEFAULT_VISION_MODEL: str = os.getenv("DEFAULT_VISION_MODEL", "gemini-3.1-flash-lite")
     DEFAULT_REASONING_MODEL: str = os.getenv("DEFAULT_REASONING_MODEL", "gemini-3-flash-preview")
+    GOOGLE_OAUTH_CLIENT_ID: str = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")
+    GOOGLE_OAUTH_CLIENT_SECRET: str = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "")
+    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
+    PUBLIC_BASE_URL: str = os.getenv("PUBLIC_BASE_URL", "")
 
     # Storage, Database & Cache Settings
     UPLOAD_DIR: str = os.path.join(_DATA_DIR, "uploads")

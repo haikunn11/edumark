@@ -65,6 +65,47 @@ class EduMarkDatabase:
                     config_json TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS provider_accounts (
+                    account_id TEXT PRIMARY KEY,
+                    provider TEXT NOT NULL,
+                    auth_type TEXT NOT NULL,
+                    label TEXT NOT NULL,
+                    account_email TEXT DEFAULT '',
+                    base_url TEXT DEFAULT '',
+                    vision_model TEXT DEFAULT '',
+                    reasoning_model TEXT DEFAULT '',
+                    secret_json TEXT NOT NULL,
+                    is_active INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'connected',
+                    last_tested_at TEXT DEFAULT '',
+                    last_error TEXT DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_provider_accounts_active ON provider_accounts(is_active DESC, updated_at DESC);
+                CREATE TABLE IF NOT EXISTS provider_auth_logs (
+                    log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    account_id TEXT DEFAULT '',
+                    provider TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    detail TEXT NOT NULL,
+                    client_ip TEXT DEFAULT '',
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_provider_auth_logs_created ON provider_auth_logs(created_at DESC, log_id DESC);
+                CREATE TABLE IF NOT EXISTS oauth_states (
+                    state TEXT PRIMARY KEY,
+                    provider TEXT NOT NULL,
+                    code_verifier TEXT NOT NULL,
+                    redirect_uri TEXT NOT NULL,
+                    label TEXT DEFAULT '',
+                    vision_model TEXT DEFAULT '',
+                    reasoning_model TEXT DEFAULT '',
+                    extra_json TEXT DEFAULT '{}',
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL
+                );
                 """
             )
 
@@ -244,6 +285,212 @@ class EduMarkDatabase:
         with self._connect() as conn:
             cur = conn.execute("DELETE FROM gradebooks WHERE gradebook_id = ?", (gradebook_id,))
         return cur.rowcount > 0
+
+    # --- Provider Accounts, Auth Logs & OAuth States (v0.8.0) ---
+    @staticmethod
+    def _row_to_provider_account(row: sqlite3.Row) -> dict:
+        d = dict(row)
+        d["is_active"] = bool(d.get("is_active", 0))
+        return d
+
+    def save_provider_account(self, account: dict) -> dict:
+        now = datetime.now(timezone.utc).isoformat()
+        created_at = account.get("created_at") or now
+        updated_at = now
+        secret_val = account.get("secret_json")
+        if not isinstance(secret_val, str):
+            secret_val = json.dumps(account.get("secret") or {}, ensure_ascii=False)
+        is_active_int = 1 if account.get("is_active") else 0
+        with self._connect() as conn:
+            if is_active_int:
+                conn.execute("UPDATE provider_accounts SET is_active = 0")
+            conn.execute(
+                """
+                INSERT INTO provider_accounts (
+                    account_id, provider, auth_type, label, account_email,
+                    base_url, vision_model, reasoning_model, secret_json,
+                    is_active, status, last_tested_at, last_error, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(account_id) DO UPDATE SET
+                    provider = excluded.provider,
+                    auth_type = excluded.auth_type,
+                    label = excluded.label,
+                    account_email = excluded.account_email,
+                    base_url = excluded.base_url,
+                    vision_model = excluded.vision_model,
+                    reasoning_model = excluded.reasoning_model,
+                    secret_json = excluded.secret_json,
+                    is_active = excluded.is_active,
+                    status = excluded.status,
+                    last_tested_at = excluded.last_tested_at,
+                    last_error = excluded.last_error,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    account["account_id"],
+                    account["provider"],
+                    account["auth_type"],
+                    account.get("label", account["provider"]),
+                    account.get("account_email", ""),
+                    account.get("base_url", ""),
+                    account.get("vision_model", ""),
+                    account.get("reasoning_model", ""),
+                    secret_val,
+                    is_active_int,
+                    account.get("status", "connected"),
+                    account.get("last_tested_at", ""),
+                    account.get("last_error", ""),
+                    created_at,
+                    updated_at,
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM provider_accounts WHERE account_id = ?",
+                (account["account_id"],),
+            ).fetchone()
+        return self._row_to_provider_account(row)
+
+    def get_provider_account(self, account_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM provider_accounts WHERE account_id = ?",
+                (account_id,),
+            ).fetchone()
+        return self._row_to_provider_account(row) if row else None
+
+    def list_provider_accounts(self) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM provider_accounts ORDER BY is_active DESC, updated_at DESC"
+            ).fetchall()
+        return [self._row_to_provider_account(r) for r in rows]
+
+    def get_active_provider_account(self) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM provider_accounts WHERE is_active = 1 ORDER BY updated_at DESC LIMIT 1"
+            ).fetchone()
+        return self._row_to_provider_account(row) if row else None
+
+    def set_active_provider_account(self, account_id: str) -> dict | None:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT account_id FROM provider_accounts WHERE account_id = ?",
+                (account_id,),
+            ).fetchone()
+            if not row:
+                return None
+            conn.execute("UPDATE provider_accounts SET is_active = 0")
+            conn.execute(
+                "UPDATE provider_accounts SET is_active = 1, updated_at = ? WHERE account_id = ?",
+                (now, account_id),
+            )
+            updated = conn.execute(
+                "SELECT * FROM provider_accounts WHERE account_id = ?",
+                (account_id,),
+            ).fetchone()
+        return self._row_to_provider_account(updated) if updated else None
+
+    def deactivate_all_provider_accounts(self) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE provider_accounts SET is_active = 0")
+
+    def delete_provider_account(self, account_id: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute("DELETE FROM provider_accounts WHERE account_id = ?", (account_id,))
+        return cur.rowcount > 0
+
+    def log_provider_auth_event(
+        self,
+        provider: str,
+        event_type: str,
+        status: str,
+        detail: str,
+        account_id: str = "",
+        client_ip: str = "",
+    ) -> dict:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO provider_auth_logs (
+                    account_id, provider, event_type, status, detail, client_ip, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (account_id or "", provider, event_type, status, detail, client_ip or "", now),
+            )
+            row = conn.execute(
+                "SELECT * FROM provider_auth_logs WHERE log_id = ?",
+                (cur.lastrowid,),
+            ).fetchone()
+        return dict(row)
+
+    def list_provider_auth_logs(self, limit: int = 50, provider: str | None = None) -> list[dict]:
+        lim = max(1, min(limit, 500))
+        with self._connect() as conn:
+            if provider:
+                rows = conn.execute(
+                    "SELECT * FROM provider_auth_logs WHERE provider = ? ORDER BY log_id DESC LIMIT ?",
+                    (provider, lim),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM provider_auth_logs ORDER BY log_id DESC LIMIT ?",
+                    (lim,),
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_oauth_state(self, state_row: dict) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        extra_json = state_row.get("extra_json")
+        if not isinstance(extra_json, str):
+            extra_json = json.dumps(state_row.get("extra") or {}, ensure_ascii=False)
+        with self._connect() as conn:
+            conn.execute("DELETE FROM oauth_states WHERE expires_at < ?", (now,))
+            conn.execute(
+                """
+                INSERT INTO oauth_states (
+                    state, provider, code_verifier, redirect_uri, label,
+                    vision_model, reasoning_model, extra_json, created_at, expires_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(state) DO UPDATE SET
+                    provider = excluded.provider,
+                    code_verifier = excluded.code_verifier,
+                    redirect_uri = excluded.redirect_uri,
+                    label = excluded.label,
+                    vision_model = excluded.vision_model,
+                    reasoning_model = excluded.reasoning_model,
+                    extra_json = excluded.extra_json,
+                    created_at = excluded.created_at,
+                    expires_at = excluded.expires_at
+                """,
+                (
+                    state_row["state"],
+                    state_row["provider"],
+                    state_row["code_verifier"],
+                    state_row["redirect_uri"],
+                    state_row.get("label", ""),
+                    state_row.get("vision_model", ""),
+                    state_row.get("reasoning_model", ""),
+                    extra_json,
+                    state_row.get("created_at") or now,
+                    state_row["expires_at"],
+                ),
+            )
+
+    def pop_oauth_state(self, state: str) -> dict | None:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            conn.execute("DELETE FROM oauth_states WHERE expires_at < ?", (now,))
+            row = conn.execute("SELECT * FROM oauth_states WHERE state = ?", (state,)).fetchone()
+            if not row:
+                return None
+            conn.execute("DELETE FROM oauth_states WHERE state = ?", (state,))
+        return dict(row)
 
 
 db = EduMarkDatabase()

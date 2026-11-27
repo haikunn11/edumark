@@ -288,6 +288,11 @@ class ReasoningGradingAgent:
     def __init__(self, api_key: str | None = None) -> None:
         self.api_key = api_key or settings.GEMINI_API_KEY
         self.openai_api_key = settings.OPENAI_API_KEY
+        self.openai_base_url: str = ""
+        self.openai_extra_headers: dict[str, str] = {}
+        self.active_provider_name: str = ""
+        self.active_account_id: str = ""
+        self.gemini_oauth_credentials: dict | None = None
         self.model_name = settings.DEFAULT_REASONING_MODEL
         self.openai_model = settings.DEFAULT_OPENAI_MODEL
         self.last_usage: dict = {
@@ -311,17 +316,25 @@ class ReasoningGradingAgent:
 
     @property
     def has_openai_live(self) -> bool:
+        if self.active_provider_name == "custom" and self.openai_base_url:
+            return True
         return bool(self.openai_api_key and not self.openai_api_key.startswith("mock_"))
 
     @property
     def has_gemini_live(self) -> bool:
-        return bool(self.api_key and not self.api_key.startswith("mock_"))
+        has_key = bool(self.api_key and not self.api_key.startswith("mock_"))
+        has_oauth = bool(self.gemini_oauth_credentials and self.gemini_oauth_credentials.get("access_token"))
+        return has_key or has_oauth
 
     @property
     def is_live(self) -> bool:
-        return self.has_openai_live or self.has_gemini_live
+        return self._active_provider() != "mock"
 
     def _active_provider(self) -> str:
+        if self.active_provider_name:
+            if self.active_provider_name == "gemini":
+                return "gemini" if self.has_gemini_live else "mock"
+            return "openai" if self.has_openai_live else "mock"
         pref = (settings.AI_PROVIDER or "openai").lower()
         if pref == "gemini" and self.has_gemini_live:
             return "gemini"
@@ -332,6 +345,22 @@ class ReasoningGradingAgent:
         if self.has_gemini_live:
             return "gemini"
         return "mock"
+
+    def _openai_chat_json(self, client, prompt: str):
+        kwargs: dict = {
+            "model": self.openai_model,
+            "messages": [{"role": "user", "content": prompt}],
+            "response_format": {"type": "json_object"},
+            "temperature": 0.0,
+        }
+        try:
+            return client.chat.completions.create(**kwargs)
+        except Exception as exc:
+            err_s = str(exc).lower()
+            if "response_format" in err_s or "400" in err_s or "json_object" in err_s:
+                kwargs.pop("response_format", None)
+                return client.chat.completions.create(**kwargs)
+            raise
 
     def grade_question(
         self,
@@ -461,21 +490,22 @@ TRẢ VỀ JSON HỢP LỆ:
 }}
 """
         if provider == "openai":
-            from openai import OpenAI
-            client = OpenAI(api_key=self.openai_api_key, timeout=45.0)
-            resp = client.chat.completions.create(
-                model=self.openai_model,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"},
-                temperature=0.0,
+            from backend.app.services.provider_auth import build_openai_client
+
+            client = build_openai_client(
+                api_key=self.openai_api_key,
+                base_url=self.openai_base_url,
+                extra_headers=self.openai_extra_headers,
+                timeout=45.0,
             )
+            resp = self._openai_chat_json(client, prompt)
             usage = getattr(resp, "usage", None)
             if usage:
                 in_t = int(getattr(usage, "prompt_tokens", 0) or 0)
                 out_t = int(getattr(usage, "completion_tokens", 0) or 0)
                 tot_t = int(getattr(usage, "total_tokens", in_t + out_t) or (in_t + out_t))
                 self.last_usage = {
-                    "provider": "openai",
+                    "provider": self.active_provider_name or "openai",
                     "model": self.openai_model,
                     "input_tokens": in_t,
                     "output_tokens": out_t,
@@ -615,21 +645,22 @@ TRẢ VỀ JSON HỢP LỆ:
 }}
 """
         if provider == "openai":
-            from openai import OpenAI
-            client = OpenAI(api_key=self.openai_api_key, timeout=45.0)
-            resp = client.chat.completions.create(
-                model=self.openai_model,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"},
-                temperature=0.0,
+            from backend.app.services.provider_auth import build_openai_client
+
+            client = build_openai_client(
+                api_key=self.openai_api_key,
+                base_url=self.openai_base_url,
+                extra_headers=self.openai_extra_headers,
+                timeout=45.0,
             )
+            resp = self._openai_chat_json(client, prompt)
             usage = getattr(resp, "usage", None)
             if usage:
                 in_t = int(getattr(usage, "prompt_tokens", 0) or 0)
                 out_t = int(getattr(usage, "completion_tokens", 0) or 0)
                 tot_t = int(getattr(usage, "total_tokens", in_t + out_t) or (in_t + out_t))
                 self.last_usage = {
-                    "provider": "openai",
+                    "provider": self.active_provider_name or "openai",
                     "model": self.openai_model,
                     "input_tokens": in_t,
                     "output_tokens": out_t,
@@ -837,26 +868,26 @@ TRẢ VỀ JSON HỢP LỆ:
         question: ExtractedQuestion | list[ExtractedQuestion],
         math_verification: MathVerificationSummary | None = None,
     ) -> tuple[str, QuestionGradingResult]:
-        from openai import OpenAI
+        from backend.app.services.provider_auth import build_openai_client
 
-        client = OpenAI(api_key=self.openai_api_key, timeout=30.0)
+        client = build_openai_client(
+            api_key=self.openai_api_key,
+            base_url=self.openai_base_url,
+            extra_headers=self.openai_extra_headers,
+            timeout=30.0,
+        )
         q_list = question if isinstance(question, list) else [question]
         primary_qid = q_list[0].question_id if q_list else "Q1"
         prompt = self._build_auto_rubric_prompt(q_list, math_verification)
 
-        response = client.chat.completions.create(
-            model=self.openai_model,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-            temperature=0.0,
-        )
+        response = self._openai_chat_json(client, prompt)
         usage = getattr(response, "usage", None)
         if usage:
             in_t = int(getattr(usage, "prompt_tokens", 0) or 0)
             out_t = int(getattr(usage, "completion_tokens", 0) or 0)
             tot_t = int(getattr(usage, "total_tokens", in_t + out_t) or (in_t + out_t))
             self.last_usage = {
-                "provider": "openai",
+                "provider": self.active_provider_name or "openai",
                 "model": self.openai_model,
                 "input_tokens": in_t,
                 "output_tokens": out_t,
@@ -868,10 +899,14 @@ TRẢ VỀ JSON HỢP LỆ:
 
     def _generate_gemini_json(self, prompt: str) -> dict:
         """Gọi Gemini Reasoning kèm chuỗi model fallback tự động & tối ưu thinking_budget để nhanh."""
-        from google import genai
         from google.genai import types
+        from backend.app.services.provider_auth import build_gemini_client
 
-        client = genai.Client(api_key=self.api_key)
+        client = build_gemini_client(
+            api_key=self.api_key,
+            oauth_credentials=self.gemini_oauth_credentials,
+            account_id=self.active_account_id,
+        )
         candidate_models: list[str] = []
         for m in (
             self.model_name,
@@ -1061,23 +1096,23 @@ TRẢ VỀ JSON HỢP LỆ:
         rubric: QuestionRubric,
         math_verification: MathVerificationSummary | None = None,
     ) -> QuestionGradingResult:
-        from openai import OpenAI
+        from backend.app.services.provider_auth import build_openai_client
 
-        client = OpenAI(api_key=self.openai_api_key, timeout=30.0)
-        prompt = self._build_rubric_prompt(question, rubric, math_verification)
-        response = client.chat.completions.create(
-            model=self.openai_model,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-            temperature=0.0,
+        client = build_openai_client(
+            api_key=self.openai_api_key,
+            base_url=self.openai_base_url,
+            extra_headers=self.openai_extra_headers,
+            timeout=30.0,
         )
+        prompt = self._build_rubric_prompt(question, rubric, math_verification)
+        response = self._openai_chat_json(client, prompt)
         usage = getattr(response, "usage", None)
         if usage:
             in_t = int(getattr(usage, "prompt_tokens", 0) or 0)
             out_t = int(getattr(usage, "completion_tokens", 0) or 0)
             tot_t = int(getattr(usage, "total_tokens", in_t + out_t) or (in_t + out_t))
             self.last_usage = {
-                "provider": "openai",
+                "provider": self.active_provider_name or "openai",
                 "model": self.openai_model,
                 "input_tokens": in_t,
                 "output_tokens": out_t,
