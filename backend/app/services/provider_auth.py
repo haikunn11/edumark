@@ -2,17 +2,67 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import ipaddress
 import json
 import secrets
+import threading
 import uuid
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import httpx
 
 from backend.app.core.cache import cache
 from backend.app.core.config import settings
 from backend.app.core.database import db
+
+_RUNTIME_SYNC_LOCK = threading.RLock()
+_OAUTH_REFRESH_LOCKS_GUARD = threading.Lock()
+_OAUTH_REFRESH_LOCKS: dict[str, threading.Lock] = {}
+
+
+def _get_refresh_lock(account_id: str) -> threading.Lock:
+    key = account_id or "__runtime__"
+    with _OAUTH_REFRESH_LOCKS_GUARD:
+        lock = _OAUTH_REFRESH_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _OAUTH_REFRESH_LOCKS[key] = lock
+        return lock
+
+
+def _validate_provider_base_url(base_url: str, provider: str = "custom") -> str:
+    """Chống SSRF cho base_url (chặn metadata cloud, giữ Ollama localhost khi ENVIRONMENT=local)."""
+    raw = (base_url or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    scheme = (parsed.scheme or "").lower()
+    host = (parsed.hostname or "").strip().lower()
+    if scheme not in ("http", "https") or not host:
+        raise ValueError("Base URL phải bắt đầu bằng http:// hoặc https:// và có tên miền hợp lệ.")
+
+    blocked_hosts = {"metadata.google.internal", "169.254.169.254", "metadata"}
+    if host in blocked_hosts or host.endswith(".internal"):
+        raise ValueError(f"Base URL không được phép trỏ vào host nội bộ/metadata: {host}")
+
+    try:
+        ip_obj = ipaddress.ip_address(host)
+        if ip_obj.is_link_local or str(ip_obj) == "169.254.169.254":
+            raise ValueError(f"Base URL không được phép dùng dải IP link-local/metadata: {host}")
+        if settings.ENVIRONMENT != "local" and (ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_reserved):
+            raise ValueError("Môi trường Cloud không cho phép base_url trỏ vào IP nội bộ/localhost.")
+    except ValueError as ip_err:
+        if "Base URL" in str(ip_err) or "Môi trường Cloud" in str(ip_err):
+            raise
+
+    if settings.ENVIRONMENT != "local":
+        if scheme != "https":
+            raise ValueError("Môi trường Cloud yêu cầu Base URL dùng giao thức https://.")
+        if host in ("localhost", "127.0.0.1", "::1") or host.endswith(".local"):
+            raise ValueError("Môi trường Cloud không cho phép Base URL trỏ về localhost.")
+
+    return raw.rstrip("/")
 
 
 PROVIDER_PRESETS: dict[str, dict] = {
@@ -198,80 +248,99 @@ def _is_token_expiring(expires_at_iso: str, leeway_seconds: int = 120) -> bool:
 
 
 def refresh_google_oauth_token(account_id: str, oauth_creds: dict) -> dict:
-    """Tự động làm mới Google OAuth2 access_token từ refresh_token và cập nhật DB + Audit Log."""
-    refresh_token = str(oauth_creds.get("refresh_token") or "").strip()
-    client_id = str(oauth_creds.get("client_id") or settings.GOOGLE_OAUTH_CLIENT_ID or "").strip()
-    client_secret = str(oauth_creds.get("client_secret") or settings.GOOGLE_OAUTH_CLIENT_SECRET or "").strip()
-    if not (refresh_token and client_id and client_secret):
-        raise ValueError("Thiếu refresh_token hoặc Google OAuth Client ID/Secret để làm mới phiên.")
+    """Tự động làm mới Google OAuth2 access_token từ refresh_token (thread-safe per account_id)."""
+    with _get_refresh_lock(account_id):
+        # Double-check sau khi giữ lock xem thread khác vừa refresh sang token mới chưa
+        if account_id:
+            latest = db.get_provider_account(account_id)
+            if latest:
+                latest_creds = _decode_secret_json(latest)
+                stale_tok = str(oauth_creds.get("access_token") or "")
+                fresh_tok = str(latest_creds.get("access_token") or "")
+                if (
+                    fresh_tok
+                    and fresh_tok != stale_tok
+                    and not _is_token_expiring(str(latest_creds.get("expires_at") or ""))
+                ):
+                    return latest_creds
 
-    try:
-        resp = httpx.post(
-            "https://oauth2.googleapis.com/token",
-            data={
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "refresh_token": refresh_token,
-                "grant_type": "refresh_token",
-            },
-            timeout=20.0,
-        )
-        if resp.status_code >= 400:
-            raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
-        payload = resp.json()
-    except Exception as exc:
+        refresh_token = str(oauth_creds.get("refresh_token") or "").strip()
+        client_id = str(oauth_creds.get("client_id") or settings.GOOGLE_OAUTH_CLIENT_ID or "").strip()
+        client_secret = str(oauth_creds.get("client_secret") or settings.GOOGLE_OAUTH_CLIENT_SECRET or "").strip()
+        if not (refresh_token and client_id and client_secret):
+            raise ValueError("Thiếu refresh_token hoặc Google OAuth Client ID/Secret để làm mới phiên.")
+
+        permanent_revoked = False
+        try:
+            resp = httpx.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                },
+                timeout=20.0,
+            )
+            if resp.status_code >= 400:
+                body_lower = (resp.text or "").lower()
+                if resp.status_code in (400, 401) and any(k in body_lower for k in ("invalid_grant", "invalid_client", "unauthorized")):
+                    permanent_revoked = True
+                raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+            payload = resp.json()
+        except Exception as exc:
+            if account_id:
+                acct = db.get_provider_account(account_id)
+                if acct:
+                    acct["status"] = "expired" if permanent_revoked else "error"
+                    acct["last_error"] = f"Làm mới token thất bại: {exc}"
+                    db.save_provider_account(acct)
+            db.log_provider_auth_event(
+                provider="gemini",
+                event_type="token_refresh_fail",
+                status="failed",
+                detail=f"Không thể làm mới Google OAuth token cho tài khoản {account_id or 'runtime'}: {exc}",
+                account_id=account_id,
+            )
+            raise
+
+        new_access = str(payload.get("access_token") or oauth_creds.get("access_token") or "")
+        expires_in = int(payload.get("expires_in") or 3600)
+        new_expires_at = (datetime.now(timezone.utc) + timedelta(seconds=expires_in)).isoformat()
+
+        updated_creds = dict(oauth_creds)
+        updated_creds["access_token"] = new_access
+        updated_creds["expires_at"] = new_expires_at
+        if payload.get("refresh_token"):
+            updated_creds["refresh_token"] = payload["refresh_token"]
+        if payload.get("scope"):
+            updated_creds["scope"] = payload["scope"]
+
         if account_id:
             acct = db.get_provider_account(account_id)
             if acct:
-                acct["status"] = "expired"
-                acct["last_error"] = f"Làm mới token thất bại: {exc}"
+                acct["secret_json"] = json.dumps(updated_creds, ensure_ascii=False)
+                acct["status"] = "connected"
+                acct["last_error"] = ""
                 db.save_provider_account(acct)
+
+        from backend.app.services.agent1_ocr import vision_agent
+        from backend.app.services.agent2_grader import reasoning_agent
+
+        with _RUNTIME_SYNC_LOCK:
+            if vision_agent.active_account_id == account_id:
+                vision_agent.gemini_oauth_credentials = dict(updated_creds)
+            if reasoning_agent.active_account_id == account_id:
+                reasoning_agent.gemini_oauth_credentials = dict(updated_creds)
+
         db.log_provider_auth_event(
             provider="gemini",
-            event_type="token_refresh_fail",
-            status="failed",
-            detail=f"Không thể làm mới Google OAuth token cho tài khoản {account_id or 'runtime'}: {exc}",
+            event_type="token_refreshed",
+            status="success",
+            detail=f"Làm mới Google OAuth access_token thành công ({mask_secret(new_access)})",
             account_id=account_id,
         )
-        raise
-
-    new_access = str(payload.get("access_token") or oauth_creds.get("access_token") or "")
-    expires_in = int(payload.get("expires_in") or 3600)
-    new_expires_at = (datetime.now(timezone.utc) + timedelta(seconds=expires_in)).isoformat()
-
-    updated_creds = dict(oauth_creds)
-    updated_creds["access_token"] = new_access
-    updated_creds["expires_at"] = new_expires_at
-    if payload.get("refresh_token"):
-        updated_creds["refresh_token"] = payload["refresh_token"]
-    if payload.get("scope"):
-        updated_creds["scope"] = payload["scope"]
-
-    if account_id:
-        acct = db.get_provider_account(account_id)
-        if acct:
-            acct["secret_json"] = json.dumps(updated_creds, ensure_ascii=False)
-            acct["status"] = "connected"
-            acct["last_error"] = ""
-            db.save_provider_account(acct)
-
-    # Cập nhật luôn runtime nếu tài khoản này đang active
-    from backend.app.services.agent1_ocr import vision_agent
-    from backend.app.services.agent2_grader import reasoning_agent
-
-    if vision_agent.active_account_id == account_id:
-        vision_agent.gemini_oauth_credentials = dict(updated_creds)
-    if reasoning_agent.active_account_id == account_id:
-        reasoning_agent.gemini_oauth_credentials = dict(updated_creds)
-
-    db.log_provider_auth_event(
-        provider="gemini",
-        event_type="token_refreshed",
-        status="success",
-        detail=f"Làm mới Google OAuth access_token thành công ({mask_secret(new_access)})",
-        account_id=account_id,
-    )
-    return updated_creds
+        return updated_creds
 
 
 def build_gemini_client(
@@ -309,60 +378,61 @@ def sync_active_provider_to_runtime() -> dict | None:
     from backend.app.services.agent1_ocr import vision_agent
     from backend.app.services.agent2_grader import reasoning_agent
 
-    active = db.get_active_provider_account()
-    if not active:
-        for ag in (vision_agent, reasoning_agent):
-            ag.active_provider_name = ""
-            ag.active_account_id = ""
-            ag.gemini_oauth_credentials = None
-            ag.openai_base_url = ""
-            ag.openai_extra_headers = {}
-            ag.api_key = settings.GEMINI_API_KEY
-            ag.openai_api_key = settings.OPENAI_API_KEY
-            ag.openai_model = settings.DEFAULT_OPENAI_MODEL
-        vision_agent.model_name = settings.DEFAULT_VISION_MODEL
-        reasoning_agent.model_name = settings.DEFAULT_REASONING_MODEL
-        return None
-
-    provider = str(active.get("provider") or "custom").lower()
-    preset = PROVIDER_PRESETS.get(provider, PROVIDER_PRESETS["custom"])
-    protocol = preset["protocol"]
-    secret = _decode_secret_json(active)
-    acct_id = active["account_id"]
-    v_model = active.get("vision_model") or preset["default_vision_model"]
-    r_model = active.get("reasoning_model") or preset["default_reasoning_model"]
-
-    if protocol == "gemini":
-        for ag in (vision_agent, reasoning_agent):
-            ag.active_provider_name = "gemini"
-            ag.active_account_id = acct_id
-            ag.openai_api_key = ""
-            ag.openai_base_url = ""
-            ag.openai_extra_headers = {}
-            if active.get("auth_type") == "oauth":
-                ag.api_key = ""
-                ag.gemini_oauth_credentials = dict(secret)
-            else:
+    with _RUNTIME_SYNC_LOCK:
+        active = db.get_active_provider_account()
+        if not active:
+            for ag in (vision_agent, reasoning_agent):
+                ag.active_provider_name = ""
+                ag.active_account_id = ""
                 ag.gemini_oauth_credentials = None
-                ag.api_key = str(secret.get("api_key") or "")
-        vision_agent.model_name = v_model
-        reasoning_agent.model_name = r_model
-    else:
-        base_url = active.get("base_url") or preset["default_base_url"]
-        extra_headers = dict(preset.get("extra_headers") or {})
-        api_key = str(secret.get("api_key") or secret.get("access_token") or "").strip() or "local-no-key"
-        for ag in (vision_agent, reasoning_agent):
-            ag.active_provider_name = provider
-            ag.active_account_id = acct_id
-            ag.api_key = ""
-            ag.gemini_oauth_credentials = None
-            ag.openai_api_key = api_key
-            ag.openai_base_url = base_url
-            ag.openai_extra_headers = extra_headers
-        vision_agent.openai_model = v_model
-        reasoning_agent.openai_model = r_model
+                ag.openai_base_url = ""
+                ag.openai_extra_headers = {}
+                ag.api_key = settings.GEMINI_API_KEY
+                ag.openai_api_key = settings.OPENAI_API_KEY
+                ag.openai_model = settings.DEFAULT_OPENAI_MODEL
+            vision_agent.model_name = settings.DEFAULT_VISION_MODEL
+            reasoning_agent.model_name = settings.DEFAULT_REASONING_MODEL
+            return None
 
-    return sanitize_account(active)
+        provider = str(active.get("provider") or "custom").lower()
+        preset = PROVIDER_PRESETS.get(provider, PROVIDER_PRESETS["custom"])
+        protocol = preset["protocol"]
+        secret = _decode_secret_json(active)
+        acct_id = active["account_id"]
+        v_model = active.get("vision_model") or preset["default_vision_model"]
+        r_model = active.get("reasoning_model") or preset["default_reasoning_model"]
+
+        if protocol == "gemini":
+            for ag in (vision_agent, reasoning_agent):
+                ag.active_provider_name = "gemini"
+                ag.active_account_id = acct_id
+                ag.openai_api_key = ""
+                ag.openai_base_url = ""
+                ag.openai_extra_headers = {}
+                if active.get("auth_type") == "oauth":
+                    ag.api_key = ""
+                    ag.gemini_oauth_credentials = dict(secret)
+                else:
+                    ag.gemini_oauth_credentials = None
+                    ag.api_key = str(secret.get("api_key") or "")
+            vision_agent.model_name = v_model
+            reasoning_agent.model_name = r_model
+        else:
+            base_url = active.get("base_url") or preset["default_base_url"]
+            extra_headers = dict(preset.get("extra_headers") or {})
+            api_key = str(secret.get("api_key") or secret.get("access_token") or "").strip() or "local-no-key"
+            for ag in (vision_agent, reasoning_agent):
+                ag.active_provider_name = provider
+                ag.active_account_id = acct_id
+                ag.api_key = ""
+                ag.gemini_oauth_credentials = None
+                ag.openai_api_key = api_key
+                ag.openai_base_url = base_url
+                ag.openai_extra_headers = extra_headers
+            vision_agent.openai_model = v_model
+            reasoning_agent.openai_model = r_model
+
+        return sanitize_account(active)
 
 
 def _run_live_probe(account: dict) -> tuple[bool, str]:
@@ -382,7 +452,7 @@ def _run_live_probe(account: dict) -> tuple[bool, str]:
             return True, f"Kết nối thành công tới {preset['display_name']} ({model})"
 
         api_key = str(secret.get("api_key") or secret.get("access_token") or "")
-        base_url = account.get("base_url") or preset["default_base_url"]
+        base_url = _validate_provider_base_url(account.get("base_url") or preset["default_base_url"], provider)
         client = build_openai_client(
             api_key=api_key,
             base_url=base_url,
@@ -422,7 +492,7 @@ def create_or_update_api_key_account(
 
     acct_id = account_id or f"acc_{prov}_{uuid.uuid4().hex[:8]}"
     existing = db.get_provider_account(acct_id) if account_id else None
-    final_base_url = (base_url or "").strip() or preset["default_base_url"]
+    final_base_url = _validate_provider_base_url((base_url or "").strip() or preset["default_base_url"], prov)
     final_v_model = (vision_model or "").strip() or preset["default_vision_model"]
     final_r_model = (reasoning_model or "").strip() or preset["default_reasoning_model"]
     final_label = (label or "").strip() or f"{preset['display_name']} ({mask_secret(clean_key)})"
@@ -664,7 +734,8 @@ def complete_openrouter_oauth(code: str, state: str, client_ip: str = "") -> dic
 
     preset = PROVIDER_PRESETS["openrouter"]
     acct_id = f"acc_openrouter_{uuid.uuid4().hex[:8]}"
-    label = st_row.get("label") or f"OpenRouter OAuth ({mask_secret(api_key)})"
+    raw_label = str(st_row.get("label") or "").strip()
+    label = f"OpenRouter ({mask_secret(api_key)})" if (not raw_label or raw_label == "OpenRouter (OAuth)") else raw_label
     now = datetime.now(timezone.utc).isoformat()
     saved = db.save_provider_account(
         {

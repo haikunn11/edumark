@@ -234,6 +234,15 @@ def _extract_json_dict(text: str) -> dict | list:
 _SCORE_EPS = 0.01
 
 
+def _safe_float(val, default: float = 0.0) -> float:
+    if val is None or val == "":
+        return default
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return default
+
+
 def _unique_evals(res: QuestionGradingResult) -> list[CriterionEvaluation]:
     """Lấy `criteria_evaluations` làm nguồn DUY NHẤT và cho `criteria_evaluation` trỏ cùng list.
 
@@ -820,8 +829,8 @@ TRẢ VỀ JSON HỢP LỆ:
 
         evals: list[CriterionEvaluation] = []
         for idx, c_data in enumerate(data.get("criteria_evaluations", [])):
-            max_c = max(0.0, float(c_data.get("max_score", c_data.get("score", 5.0))))
-            earned_c = max(0.0, min(max_c, float(c_data.get("score", 0.0))))
+            max_c = max(0.0, _safe_float(c_data.get("max_score", c_data.get("score")), 5.0))
+            earned_c = max(0.0, min(max_c, _safe_float(c_data.get("score"), 0.0)))
             evals.append(
                 CriterionEvaluation(
                     criterion_id=str(c_data.get("criterion_id", f"C{idx + 1}")),
@@ -837,10 +846,10 @@ TRẢ VỀ JSON HỢP LỆ:
                 )
             )
 
-        total_max = max(0.1, float(data.get("total_points", 10.0)))
-        total_pts = max(0.0, min(total_max, float(data.get("suggested_score", sum(e.score for e in evals)))))
+        total_max = max(0.1, _safe_float(data.get("total_points"), 10.0))
+        total_pts = max(0.0, min(total_max, _safe_float(data.get("suggested_score"), sum(e.score for e in evals))))
         exam_title = str(data.get("detected_exam_title", "Bài thi Toán học"))
-        conf = max(0.0, min(1.0, float(data.get("confidence", 0.92))))
+        conf = max(0.0, min(1.0, _safe_float(data.get("confidence"), 0.92)))
         conf_lvl = "green" if conf >= 0.90 else ("yellow" if conf >= 0.70 else "red")
 
         q_res = QuestionGradingResult(
@@ -948,7 +957,6 @@ TRẢ VỀ JSON HỢP LỆ:
                     else:
                         raise
 
-                self.model_name = model_id
                 um = getattr(response, "usage_metadata", None)
                 if um:
                     in_t = int(getattr(um, "prompt_token_count", 0) or 0)
@@ -1050,8 +1058,8 @@ TRẢ VỀ JSON HỢP LỆ:
 
         evals: list[CriterionEvaluation] = []
         for c_data in data.get("criteria_evaluations", []):
-            max_c = max(0.0, float(c_data.get("max_score", 0.5)))
-            earned_c = max(0.0, min(max_c, float(c_data.get("score", 0.0))))
+            max_c = max(0.0, _safe_float(c_data.get("max_score"), 0.5))
+            earned_c = max(0.0, min(max_c, _safe_float(c_data.get("score"), 0.0)))
             evals.append(
                 CriterionEvaluation(
                     criterion_id=str(c_data.get("criterion_id", "")),
@@ -1066,8 +1074,8 @@ TRẢ VỀ JSON HỢP LỆ:
                 )
             )
         max_total = rubric.total_points or rubric.max_score
-        total_pts = max(0.0, min(max_total, float(data.get("suggested_score", sum(e.score for e in evals)))))
-        conf = max(0.0, min(1.0, float(data.get("confidence", 0.9))))
+        total_pts = max(0.0, min(max_total, _safe_float(data.get("suggested_score"), sum(e.score for e in evals))))
+        conf = max(0.0, min(1.0, _safe_float(data.get("confidence"), 0.9)))
         conf_lvl = "green" if conf >= 0.90 else ("yellow" if conf >= 0.70 else "red")
 
         q_res = QuestionGradingResult(

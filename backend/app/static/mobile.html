@@ -312,6 +312,10 @@
       renderPagesTray();
     }
 
+    function mobEscapeHtml(s) {
+      return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     function openApkServerSettings() {
       window.location.href = 'https://localhost/?change=1';
     }
@@ -724,7 +728,7 @@
             <span>Chấm: ${sec(t.grading_ms)}</span>
           </div>
           <div class="text-[10px] text-slate-400">
-            In: ${t.total_input_tokens} · Out: ${t.total_output_tokens} · Think: ${t.total_thinking_tokens} | Model: ${t.ocr_model}
+            In: ${t.total_input_tokens} · Out: ${t.total_output_tokens} · Think: ${t.total_thinking_tokens} | Model: ${mobEscapeHtml(t.ocr_model)}
           </div>
         `;
         telBox.classList.remove('hidden');
@@ -744,11 +748,11 @@
           div.className = 'p-2.5 rounded-xl border ' + (strike
             ? 'bg-slate-950/60 border-slate-800 text-slate-500 line-through'
             : 'bg-slate-800/70 border-slate-700/70 text-slate-100');
-          const content = l.latex || l.raw_text || '';
+          const content = mobEscapeHtml(l.latex || l.raw_text || '');
           const wrapped = (content.includes('\\') || content.includes('=')) && !content.includes('$') ? `$${content}$` : content;
           div.innerHTML = `
             <div class="flex items-center justify-between text-[10px] text-slate-400 mb-1">
-              <span>Trang ${l.page_no || 1} · Dòng ${l.line_no}</span>
+              <span>Trang ${Number(l.page_no) || 1} · Dòng ${Number(l.line_no) || 1}</span>
               <span>${strike ? 'Đã gạch bỏ' : (Math.round((l.confidence || 0.9) * 100) + '%')}</span>
             </div>
             <div class="overflow-x-auto">${wrapped}</div>
@@ -774,10 +778,10 @@
           item.className = `p-3 rounded-xl border ${color}`;
           item.innerHTML = `
             <div class="flex items-center justify-between text-xs font-bold">
-              <span>${c.name || c.criterion_id}</span>
+              <span>${mobEscapeHtml(c.name || c.criterion_id)}</span>
               <span>${c.earned_points}/${c.max_points}đ</span>
             </div>
-            <p class="text-[11px] text-slate-300 mt-1">${c.feedback || ''}</p>
+            <p class="text-[11px] text-slate-300 mt-1">${mobEscapeHtml(c.feedback || '')}</p>
           `;
           critBox.appendChild(item);
         });
@@ -930,6 +934,7 @@
         body: JSON.stringify({
           submission_id: currentRecord.submission_id,
           score_overrides: overrides,
+          final_score_override: newScore,
           teacher_note: note,
           approve: true
         })
@@ -961,12 +966,12 @@
           card.onclick = () => { currentRecord = rec; renderResult(rec); switchTab('result'); };
           card.innerHTML = `
             <div>
-              <p class="text-sm font-bold text-slate-100">${rec.student_name}</p>
-              <p class="text-[11px] text-slate-400">${rec.exam_title || rec.exam_id} · ${rec.page_count || 1} trang</p>
+              <p class="text-sm font-bold text-slate-100">${mobEscapeHtml(rec.student_name)}</p>
+              <p class="text-[11px] text-slate-400">${mobEscapeHtml(rec.exam_title || rec.exam_id)} · ${Number(rec.page_count) || 1} trang</p>
             </div>
             <div class="text-right">
               <p class="text-lg font-extrabold text-emerald-400">${score}/${rec.total_points}</p>
-              <span class="text-[10px] font-semibold ${rec.status === 'APPROVED' ? 'text-emerald-400' : 'text-amber-400'}">${rec.status}</span>
+              <span class="text-[10px] font-semibold ${rec.status === 'APPROVED' ? 'text-emerald-400' : 'text-amber-400'}">${mobEscapeHtml(rec.status)}</span>
             </div>
           `;
           box.appendChild(card);

@@ -359,6 +359,7 @@ class SubmissionGradingRecord(BaseModel):
 class TeacherReviewRequest(BaseModel):
     submission_id: str
     score_overrides: dict[str, float] = Field(default_factory=dict, description="question_id -> điểm mới")
+    final_score_override: float | None = Field(default=None, description="Tổng điểm mới do giáo viên chốt cho toàn bài")
     teacher_note: str | None = None
     approve: bool = True
 

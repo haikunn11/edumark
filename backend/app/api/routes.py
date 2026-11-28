@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from html import escape as html_escape
 from fastapi import APIRouter, BackgroundTasks, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
 
@@ -264,8 +266,11 @@ def health_check() -> dict:
 
 
 @router.get("/system/mobile-access")
-def get_mobile_access_info() -> dict:
+def get_mobile_access_info(
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+) -> dict:
     """Trả về đường dẫn LAN HTTPS, Public Tunnel HTTPS (Tailscale Funnel) & HTTP để mở Mobile App /app."""
+    _require_admin_guard(x_admin_token)
     import re as _re
     import socket
     import subprocess
@@ -313,6 +318,40 @@ def get_mobile_access_info() -> dict:
     }
 
 
+def _validate_safe_id(value: str, label: str = "ID") -> str:
+    s = (value or "").strip()
+    if not s or ".." in s or "/" in s or "\\" in s or any(ord(c) < 32 for c in s):
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "E001", "message": f"{label} không hợp lệ: không được chứa ký tự đường dẫn."},
+        )
+    return s
+
+
+def _upsert_env_file(env_path: str, updates: dict[str, str]) -> None:
+    """Cập nhật khóa .env an toàn, giữ nguyên mọi biến môi trường hiện có."""
+    lines: list[str] = []
+    if os.path.isfile(env_path):
+        with open(env_path, "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+
+    remaining = {k: str(v) for k, v in updates.items()}
+    new_lines: list[str] = []
+    for ln in lines:
+        stripped = ln.strip()
+        if stripped and not stripped.startswith("#") and "=" in ln:
+            k = ln.split("=", 1)[0].strip()
+            if k in remaining:
+                new_lines.append(f"{k}={remaining.pop(k)}")
+                continue
+        new_lines.append(ln)
+    for k, v in remaining.items():
+        new_lines.append(f"{k}={v}")
+
+    with open(env_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(new_lines) + "\n")
+
+
 def _require_admin_guard(x_admin_token: str | None) -> None:
     if settings.ADMIN_API_TOKEN or settings.ENVIRONMENT != "local":
         expected = settings.ADMIN_API_TOKEN
@@ -326,17 +365,20 @@ def _require_admin_guard(x_admin_token: str | None) -> None:
 def _resolve_public_origin(request: Request) -> str:
     if (settings.PUBLIC_BASE_URL or "").strip():
         return settings.PUBLIC_BASE_URL.strip().rstrip("/")
-    proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
+    proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
     host = (request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
-    if host:
-        return f"{proto or request.url.scheme}://{host}".rstrip("/")
+    if host and re.fullmatch(r"[A-Za-z0-9.\-:]+", host):
+        scheme = "https" if proto == "https" else (proto if proto in ("http", "https") else request.url.scheme)
+        return f"{scheme}://{host}".rstrip("/")
     return str(request.base_url).rstrip("/")
 
 
 def _client_ip(request: Request) -> str:
-    xff = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
-    if xff:
-        return xff
+    xff_raw = request.headers.get("x-forwarded-for") or ""
+    if xff_raw.strip():
+        parts = [p.strip() for p in xff_raw.split(",") if p.strip()]
+        if parts:
+            return parts[-1]
     return request.client.host if request.client else ""
 
 
@@ -344,6 +386,7 @@ def _client_ip(request: Request) -> str:
 def get_key_status() -> dict:
     from backend.app.services.agent1_ocr import vision_agent
 
+    requires_admin = bool(settings.ADMIN_API_TOKEN or settings.ENVIRONMENT != "local")
     accounts = db.list_provider_accounts()
     active_acc = db.get_active_provider_account()
     if active_acc:
@@ -359,6 +402,7 @@ def get_key_status() -> dict:
             "account_label": san["label"],
             "auth_type": san["auth_type"],
             "connected_count": len(accounts),
+            "requires_admin_token": requires_admin,
         }
 
     has_openai = bool(settings.OPENAI_API_KEY and not settings.OPENAI_API_KEY.startswith("mock_"))
@@ -389,6 +433,7 @@ def get_key_status() -> dict:
         "account_label": "",
         "auth_type": "api_key" if has_key else "mock",
         "connected_count": len(accounts),
+        "requires_admin_token": requires_admin,
     }
 
 
@@ -398,81 +443,59 @@ def update_api_key(
     request: Request,
     x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
 ) -> dict:
-    """Lưu OpenAI hoặc Gemini API Key vào runtime & .env (có bảo vệ ADMIN_API_TOKEN ở staging/prod)."""
+    """Lưu API Key vào runtime & .env an toàn (giữ nguyên biến môi trường khác)."""
     _require_admin_guard(x_admin_token)
 
-    from backend.app.services.agent1_ocr import vision_agent
-    from backend.app.services.agent2_grader import reasoning_agent
     from backend.app.core.cache import cache
 
     new_key = str(req.get("api_key", "")).strip()
     if not new_key:
         raise HTTPException(status_code=400, detail="API Key không được để trống")
+    if any(ch in new_key for ch in ("\r", "\n", "\x00")):
+        raise HTTPException(status_code=400, detail="API Key chứa ký tự điều khiển không hợp lệ.")
 
-    is_openai = new_key.startswith("sk-")
+    if new_key.startswith("sk-or-"):
+        target_provider = "openrouter"
+        quick_label = "OpenRouter (Quick Key)"
+    elif new_key.startswith("sk-"):
+        target_provider = "openai"
+        quick_label = "OpenAI (Quick Key)"
+    else:
+        target_provider = "gemini"
+        quick_label = "Gemini (Quick Key)"
 
-    if not new_key.startswith("mock_"):
-        if is_openai:
-            try:
-                from openai import OpenAI
-                client = OpenAI(api_key=new_key)
-                client.chat.completions.create(
-                    model=settings.DEFAULT_OPENAI_MODEL,
-                    messages=[{"role": "user", "content": "ping"}],
-                    max_tokens=5,
-                )
-            except Exception as exc:
-                raise HTTPException(status_code=400, detail=f"OpenAI API Key không hợp lệ: {exc}")
-        else:
-            try:
-                from google import genai
-                client = genai.Client(api_key=new_key)
-                client.models.generate_content(
-                    model=settings.DEFAULT_VISION_MODEL,
-                    contents="ping",
-                )
-            except Exception as exc:
-                raise HTTPException(status_code=400, detail=f"Gemini API Key không hợp lệ: {exc}")
+    try:
+        acct = create_or_update_api_key_account(
+            provider=target_provider,
+            api_key=new_key,
+            label=quick_label,
+            activate=True,
+            verify_live=(not new_key.startswith("mock_")),
+            client_ip=_client_ip(request),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     cache.clear()
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     env_path = os.path.join(project_root, ".env")
-
-    if is_openai:
+    if target_provider == "openai":
         settings.AI_PROVIDER = "openai"
         settings.OPENAI_API_KEY = new_key
-        vision_agent.openai_api_key = new_key
-        reasoning_agent.openai_api_key = new_key
-        with open(env_path, "w", encoding="utf-8") as f:
-            f.write(
-                f"AI_PROVIDER=openai\nOPENAI_API_KEY={new_key}\n"
-                f"DEFAULT_OPENAI_MODEL={settings.DEFAULT_OPENAI_MODEL}\n"
-                f"GEMINI_API_KEY={settings.GEMINI_API_KEY}\n"
-            )
+        _upsert_env_file(env_path, {"AI_PROVIDER": "openai", "OPENAI_API_KEY": new_key})
         msg = f"Đã kích hoạt OpenAI ({settings.DEFAULT_OPENAI_MODEL}) thành công!"
+    elif target_provider == "openrouter":
+        settings.OPENROUTER_API_KEY = new_key
+        _upsert_env_file(env_path, {"OPENROUTER_API_KEY": new_key})
+        msg = "Đã kích hoạt OpenRouter thành công!"
     else:
         settings.AI_PROVIDER = "gemini"
         settings.GEMINI_API_KEY = new_key
-        vision_agent.api_key = new_key
-        reasoning_agent.api_key = new_key
-        with open(env_path, "w", encoding="utf-8") as f:
-            f.write(
-                f"AI_PROVIDER=gemini\nOPENAI_API_KEY={settings.OPENAI_API_KEY}\n"
-                f"GEMINI_API_KEY={new_key}\n"
-                f"DEFAULT_VISION_MODEL={settings.DEFAULT_VISION_MODEL}\n"
-            )
+        _upsert_env_file(env_path, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": new_key})
         msg = f"Đã kích hoạt Google Gemini ({settings.DEFAULT_VISION_MODEL}) thành công!"
 
-    acct = create_or_update_api_key_account(
-        provider="openai" if is_openai else "gemini",
-        api_key=new_key,
-        label="OpenAI (Quick Key)" if is_openai else "Gemini (Quick Key)",
-        activate=True,
-        verify_live=False,
-        client_ip=_client_ip(request),
-    )
     db.log_provider_auth_event(
-        provider="openai" if is_openai else "gemini",
+        provider=target_provider,
         event_type="legacy_key_updated",
         status="success",
         detail=f"Cập nhật key qua /config/key cho tài khoản {acct['label']}",
@@ -490,6 +513,7 @@ def list_exams() -> list[ExamRubric]:
 
 @router.get("/exams/{exam_id}", response_model=ExamRubric)
 def get_exam(exam_id: str) -> ExamRubric:
+    _validate_safe_id(exam_id, "Mã đề thi")
     exam = db.get_exam(exam_id)
     if not exam:
         raise HTTPException(
@@ -501,6 +525,7 @@ def get_exam(exam_id: str) -> ExamRubric:
 
 @router.post("/exams", response_model=ExamRubric)
 def create_exam(rubric: ExamRubric) -> ExamRubric:
+    rubric.exam_id = _validate_safe_id(rubric.exam_id, "Mã đề thi")
     db.save_exam(rubric)
     EXAM_DB[rubric.exam_id] = rubric
     return rubric
@@ -508,6 +533,7 @@ def create_exam(rubric: ExamRubric) -> ExamRubric:
 
 @router.put("/exams/{exam_id}", response_model=ExamRubric)
 def update_exam(exam_id: str, rubric: ExamRubric) -> ExamRubric:
+    _validate_safe_id(exam_id, "Mã đề thi")
     if not db.get_exam(exam_id):
         raise HTTPException(
             status_code=404,
@@ -521,6 +547,7 @@ def update_exam(exam_id: str, rubric: ExamRubric) -> ExamRubric:
 
 @router.delete("/exams/{exam_id}")
 def delete_exam(exam_id: str) -> dict:
+    _validate_safe_id(exam_id, "Mã đề thi")
     if exam_id == "AUTO":
         raise HTTPException(
             status_code=400,
@@ -553,7 +580,8 @@ async def generate_exam_rubric_from_files(
         files_data.append((os.path.basename(f.filename or "exam.jpg"), content))
 
     try:
-        rubric = extract_rubric_from_files(
+        rubric = await run_in_threadpool(
+            extract_rubric_from_files,
             files_data=files_data,
             title=title,
             grade=grade,
@@ -598,7 +626,7 @@ async def check_capture_quality(file: UploadFile = File(...)) -> ImageQualityRep
     """Đánh giá nhanh độ nét & ánh sáng ảnh chụp điện thoại trước khi gửi chấm AI."""
     image_bytes = await file.read()
     _validate_upload_image_or_pdf(file, image_bytes)
-    return assess_capture_quality(image_bytes)
+    return await run_in_threadpool(assess_capture_quality, image_bytes)
 
 
 # --- Submissions Listing & Grading ---
@@ -633,7 +661,8 @@ async def grade_submission(
     rubric = _resolve_rubric(exam_id)
 
     try:
-        record = grading_pipeline.process_submission(
+        record = await run_in_threadpool(
+            grading_pipeline.process_submission,
             image_bytes=image_bytes,
             rubric=rubric,
             student_name=student_name,
@@ -677,7 +706,8 @@ async def grade_multipage_submission(
     rubric = _resolve_rubric(exam_id)
 
     try:
-        record = grading_pipeline.process_multipage_submission(
+        record = await run_in_threadpool(
+            grading_pipeline.process_multipage_submission,
             pages_bytes=pages_bytes,
             rubric=rubric,
             student_name=student_name,
@@ -732,7 +762,12 @@ async def grade_folder_upload(
 
     rubric = _resolve_rubric(exam_id)
     try:
-        record = grade_student_folder(files_data=files_data, rubric=rubric, student_name=student_name)
+        record = await run_in_threadpool(
+            grade_student_folder,
+            files_data=files_data,
+            rubric=rubric,
+            student_name=student_name,
+        )
     except OCRLowConfidenceError as exc:
         raise HTTPException(status_code=422, detail={"error_code": "E004", "message": str(exc)})
     except OCRApiError as exc:
@@ -746,11 +781,17 @@ async def grade_folder_upload(
 
 
 @router.post("/submissions/grade-folder-path", response_model=SubmissionGradingRecord)
-def grade_folder_path(req: FolderPathGradeRequest) -> SubmissionGradingRecord:
+def grade_folder_path(
+    req: FolderPathGradeRequest,
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+) -> SubmissionGradingRecord:
     """
     Chế độ A (Đường dẫn Folder local trên máy): Quét trực tiếp thư mục ảnh local,
     OCR song song, tự sắp xếp lại câu lộn xộn và chấm trọn bộ.
     """
+    if settings.ENVIRONMENT != "local":
+        raise HTTPException(status_code=403, detail={"error_code": "E007", "message": "Chỉ hỗ trợ đọc đường dẫn thư mục local khi ENVIRONMENT=local."})
+    _require_admin_guard(x_admin_token)
     try:
         files_data = load_images_from_local_folder(req.folder_path, max_files=30)
     except FileNotFoundError as exc:
@@ -811,7 +852,11 @@ async def grade_folder_smart_upload(
 
     rubric = _resolve_rubric(exam_id)
     try:
-        batch_res = grade_smart_folder_multistudent(files_data=files_data, rubric=rubric)
+        batch_res = await run_in_threadpool(
+            grade_smart_folder_multistudent,
+            files_data=files_data,
+            rubric=rubric,
+        )
     except OCRLowConfidenceError as exc:
         raise HTTPException(status_code=422, detail={"error_code": "E004", "message": str(exc)})
     except OCRApiError as exc:
@@ -826,8 +871,14 @@ async def grade_folder_smart_upload(
 
 
 @router.post("/submissions/grade-folder-smart-path", response_model=SmartFolderBatchResult)
-def grade_folder_smart_path(req: FolderPathGradeRequest) -> SmartFolderBatchResult:
+def grade_folder_smart_path(
+    req: FolderPathGradeRequest,
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+) -> SmartFolderBatchResult:
     """Chế độ Thông Minh (v0.3.0 — Đường dẫn Folder local): tự xoay ảnh + tách nhiều học sinh + xuất sub-folders."""
+    if settings.ENVIRONMENT != "local":
+        raise HTTPException(status_code=403, detail={"error_code": "E007", "message": "Chỉ hỗ trợ đọc đường dẫn thư mục local khi ENVIRONMENT=local."})
+    _require_admin_guard(x_admin_token)
     try:
         files_data = load_images_from_local_folder(req.folder_path, max_files=50)
     except FileNotFoundError as exc:
@@ -1069,7 +1120,10 @@ def regrade_submission_question(submission_id: str, req: RegradeQuestionRequest)
     total_score = round(sum(qr.suggested_score for qr in record.question_results), 2)
     record.ai_total_score = total_score
     record.final_score = total_score
-    record.needs_teacher_review = any(qr.needs_review for qr in record.question_results)
+    record.needs_teacher_review = bool(
+        (record.quality and record.quality.is_blurry)
+        or any(qr.needs_review for qr in record.question_results)
+    )
     if record.status == SubmissionStatus.FLAGGED_REVIEW and not record.needs_teacher_review:
         record.status = SubmissionStatus.GRADED_DRAFT
 
@@ -1088,8 +1142,10 @@ def review_submission(req: TeacherReviewRequest) -> SubmissionGradingRecord:
             detail={"error_code": "E002", "message": "Không tìm thấy bài thi cần duyệt."},
         )
 
+    has_score_change = False
     if req.score_overrides:
         total = 0.0
+        matched_any = False
         for q_res in record.question_results:
             if q_res.question_id in req.score_overrides:
                 override_val = float(req.score_overrides[q_res.question_id])
@@ -1103,9 +1159,28 @@ def review_submission(req: TeacherReviewRequest) -> SubmissionGradingRecord:
                     )
                 q_res.suggested_score = override_val
                 q_res.earned_points = override_val
+                matched_any = True
             total += q_res.suggested_score
-        record.final_score = round(total, 2)
-        record.ai_total_score = round(total, 2)
+        if matched_any:
+            record.final_score = round(total, 2)
+            has_score_change = True
+
+    if req.final_score_override is not None:
+        max_pts = float(record.total_points or 10.0)
+        tot_override = float(req.final_score_override)
+        if tot_override < 0.0 or tot_override > max_pts:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error_code": "E001",
+                    "message": f"Tổng điểm ghi đè {tot_override} phải nằm trong khoảng [0, {max_pts}].",
+                },
+            )
+        record.final_score = round(tot_override, 2)
+        if len(record.question_results) == 1 and not req.score_overrides:
+            record.question_results[0].suggested_score = record.final_score
+            record.question_results[0].earned_points = record.final_score
+        has_score_change = True
 
     if req.teacher_note is not None:
         record.teacher_note = req.teacher_note
@@ -1113,7 +1188,7 @@ def review_submission(req: TeacherReviewRequest) -> SubmissionGradingRecord:
     if req.approve:
         record.status = SubmissionStatus.APPROVED
         record.needs_teacher_review = False
-    elif req.score_overrides:
+    elif has_score_change:
         record.needs_teacher_review = False
 
     db.save_submission(record)
@@ -1315,7 +1390,7 @@ async def batch_grade_submissions(
             background_tasks.add_task(batch_manager.run_batch_sync, job.job_id, items, rubric)
             return job.to_dict()
 
-        completed_job = batch_manager.run_batch_sync(job.job_id, items, rubric)
+        completed_job = await run_in_threadpool(batch_manager.run_batch_sync, job.job_id, items, rubric)
         for r in completed_job.results:
             SUBMISSION_DB[r.submission_id] = r
         return completed_job.to_dict()
@@ -1539,7 +1614,7 @@ def _oauth_popup_html(ok: bool, provider: str, account: dict | None = None, erro
       var msg = {payload_js};
       try {{
         if (window.opener && !window.opener.closed) {{
-          window.opener.postMessage(msg, "*");
+          window.opener.postMessage(msg, window.location.origin);
         }}
       }} catch (e) {{}}
       if (msg.ok) {{
@@ -1563,7 +1638,10 @@ def api_get_provider_catalog(request: Request) -> dict:
 
 
 @router.get("/auth/providers/accounts")
-def api_list_provider_accounts() -> dict:
+def api_list_provider_accounts(
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+) -> dict:
+    _require_admin_guard(x_admin_token)
     accounts = [sanitize_account(r) for r in db.list_provider_accounts()]
     active = next((a for a in accounts if a["is_active"]), None)
     return {"accounts": accounts, "active_account": active}
@@ -1708,5 +1786,7 @@ def api_gemini_oauth_callback(
 def api_list_provider_auth_logs(
     limit: int = Query(default=50, ge=1, le=500),
     provider: str | None = Query(default=None),
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
 ) -> dict:
+    _require_admin_guard(x_admin_token)
     return {"logs": db.list_provider_auth_logs(limit=limit, provider=provider or None)}

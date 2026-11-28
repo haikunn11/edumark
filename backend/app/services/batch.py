@@ -100,9 +100,15 @@ def extract_zip_images(zip_bytes: bytes, max_files: int = 50) -> list[tuple[str,
     image_entries.sort(key=natural_sort_key)
 
     results: list[tuple[str, bytes]] = []
+    seen_names: dict[str, int] = {}
     for name in image_entries:
         raw_bytes = zf.read(name)
-        base_name = os.path.basename(name)
+        base_name = os.path.basename(name) or "page.jpg"
+        cnt = seen_names.get(base_name, 0) + 1
+        seen_names[base_name] = cnt
+        if cnt > 1:
+            stem, ext = os.path.splitext(base_name)
+            base_name = f"{stem}_{cnt}{ext}"
         results.append((base_name, raw_bytes))
 
     return results
@@ -175,9 +181,10 @@ class BatchJobManager:
 
         job.status = "processing"
         db.save_batch_job(job.to_dict())
-        for label, img_bytes in items:
+        for idx, (label, img_bytes) in enumerate(items, start=1):
             try:
-                sub_id = f"{job.exam_id}_{label}"
+                safe_label = re.sub(r"[^0-9a-zA-Z._-]+", "_", os.path.basename(label))[:48] or f"item_{idx}"
+                sub_id = f"{job.exam_id}_{job.job_id}_{idx:03d}_{safe_label}"
                 rec = grading_pipeline.process_submission(
                     image_bytes=img_bytes,
                     rubric=rubric,

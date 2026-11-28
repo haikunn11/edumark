@@ -25,8 +25,6 @@ class EduMarkDatabase:
         conn = sqlite3.connect(self.db_path, timeout=15.0)
         conn.row_factory = sqlite3.Row
         try:
-            conn.execute("PRAGMA journal_mode=WAL;")
-            conn.execute("PRAGMA synchronous=NORMAL;")
             with conn:
                 yield conn
         finally:
@@ -34,6 +32,8 @@ class EduMarkDatabase:
 
     def _init_schema(self) -> None:
         with self._connect() as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA synchronous=NORMAL;")
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS exams (

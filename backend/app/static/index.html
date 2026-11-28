@@ -650,6 +650,12 @@
         </button>
       </div>
 
+      <div id="auth-admin-token-bar" class="hidden mb-3 p-2.5 rounded-xl bg-amber-950/35 border border-amber-700/60 text-xs flex flex-wrap items-center gap-2">
+        <span class="text-amber-300 font-semibold shrink-0"><i class="fa-solid fa-lock mr-1"></i>Admin Token:</span>
+        <input type="password" id="auth-admin-token-input" oninput="saveAdminToken(this.value)" placeholder="Nhập X-Admin-Token (nếu server đang bật bảo vệ)" class="flex-1 min-w-[180px] bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-[11px] text-slate-100 font-mono focus:outline-none focus:border-amber-500" />
+        <button type="button" onclick="switchAuthTab('accounts')" class="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-semibold">Mở khóa</button>
+      </div>
+
       <div id="api-key-msg" class="hidden p-2.5 rounded-lg text-xs mb-3"></div>
 
       <!-- Tab 1: Tài khoản AI -->
@@ -891,6 +897,23 @@
 
     let isKeyConfigured = false;
     let authProviderCatalog = {};
+    let serverRequiresAdminToken = false;
+
+    function getAdminToken() {
+      try { return sessionStorage.getItem('edumark_admin_token') || ''; } catch (e) { return ''; }
+    }
+
+    function saveAdminToken(val) {
+      try {
+        if (val) sessionStorage.setItem('edumark_admin_token', val);
+        else sessionStorage.removeItem('edumark_admin_token');
+      } catch (e) {}
+    }
+
+    function adminHeaders(extra = {}) {
+      const tok = getAdminToken();
+      return tok ? { ...extra, 'X-Admin-Token': tok } : { ...extra };
+    }
 
     function showAuthMessage(ok, text) {
       const msgBox = document.getElementById('api-key-msg');
@@ -907,6 +930,12 @@
       try {
         const res = await fetch('/api/v1/config/key-status');
         const data = await res.json();
+        serverRequiresAdminToken = Boolean(data.requires_admin_token);
+        const adminBar = document.getElementById('auth-admin-token-bar');
+        if (adminBar) adminBar.classList.toggle('hidden', !serverRequiresAdminToken);
+        const tokInput = document.getElementById('auth-admin-token-input');
+        if (tokInput && !tokInput.value) tokInput.value = getAdminToken();
+
         const dot = document.getElementById('api-dot');
         const label = document.getElementById('api-label');
         const banner = document.getElementById('mock-banner');
@@ -981,8 +1010,18 @@
       const listEl = document.getElementById('auth-accounts-list');
       if (!summary || !listEl) return;
       try {
-        const res = await fetch('/api/v1/auth/providers/accounts');
+        const res = await fetch('/api/v1/auth/providers/accounts', { headers: adminHeaders() });
         const data = await res.json();
+        if (!res.ok) {
+          if (res.status === 403) {
+            const adminBar = document.getElementById('auth-admin-token-bar');
+            if (adminBar) adminBar.classList.remove('hidden');
+            summary.innerHTML = `<div class="text-amber-300">Server đang bật bảo vệ <code>ADMIN_API_TOKEN</code>. Vui lòng nhập Admin Token ở trên rồi bấm <strong>Mở khóa</strong>.</div>`;
+            listEl.innerHTML = '';
+            return;
+          }
+          throw new Error(data.detail?.message || 'Lỗi tải tài khoản');
+        }
         const active = data.active_account;
         const accounts = data.accounts || [];
         if (active) {
@@ -1026,7 +1065,10 @@
     }
 
     async function activateProviderAccount(accountId) {
-      const res = await fetch(`/api/v1/auth/providers/accounts/${encodeURIComponent(accountId)}/activate`, { method: 'POST' });
+      const res = await fetch(`/api/v1/auth/providers/accounts/${encodeURIComponent(accountId)}/activate`, {
+        method: 'POST',
+        headers: adminHeaders(),
+      });
       const data = await res.json();
       if (res.ok) {
         showAuthMessage(true, `Đã kích hoạt tài khoản ${data.account?.label || accountId}.`);
@@ -1039,7 +1081,10 @@
 
     async function testProviderAccount(accountId) {
       showAuthMessage(true, 'Đang gửi ping kiểm tra kết nối thực tới AI Provider...');
-      const res = await fetch(`/api/v1/auth/providers/accounts/${encodeURIComponent(accountId)}/test`, { method: 'POST' });
+      const res = await fetch(`/api/v1/auth/providers/accounts/${encodeURIComponent(accountId)}/test`, {
+        method: 'POST',
+        headers: adminHeaders(),
+      });
       const data = await res.json();
       if (res.ok && data.ok) {
         showAuthMessage(true, data.message || 'Kết nối thành công!');
@@ -1050,11 +1095,17 @@
     }
 
     async function deleteProviderAccount(accountId) {
-      const res = await fetch(`/api/v1/auth/providers/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' });
+      const res = await fetch(`/api/v1/auth/providers/accounts/${encodeURIComponent(accountId)}`, {
+        method: 'DELETE',
+        headers: adminHeaders(),
+      });
       if (res.ok) {
         showAuthMessage(true, 'Đã xóa tài khoản khỏi Auth Hub.');
         checkApiKeyStatus();
         loadAuthProviderAccounts();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showAuthMessage(false, data.detail?.message || 'Không có quyền xóa tài khoản.');
       }
     }
 
@@ -1065,8 +1116,17 @@
       const prov = filterEl ? filterEl.value : '';
       const url = `/api/v1/auth/providers/logs?limit=60${prov ? '&provider=' + encodeURIComponent(prov) : ''}`;
       try {
-        const res = await fetch(url);
+        const res = await fetch(url, { headers: adminHeaders() });
         const data = await res.json();
+        if (!res.ok) {
+          if (res.status === 403) {
+            const adminBar = document.getElementById('auth-admin-token-bar');
+            if (adminBar) adminBar.classList.remove('hidden');
+            listEl.innerHTML = '<div class="text-amber-300 text-center py-6">Cần nhập Admin Token ở phía trên để xem Nhật ký Auth.</div>';
+            return;
+          }
+          throw new Error(data.detail?.message || 'Lỗi tải log');
+        }
         const logs = data.logs || [];
         if (!logs.length) {
           listEl.innerHTML = '<div class="text-center py-6 text-slate-400">Chưa có sự kiện nhật ký Auth nào.</div>';
@@ -1105,7 +1165,7 @@
         }
         const res = await fetch('/api/v1/auth/providers/oauth/start', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: adminHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify(payload),
         });
         const data = await res.json();
@@ -1124,6 +1184,7 @@
     }
 
     window.addEventListener('message', (event) => {
+      if (event.origin !== window.location.origin) return;
       if (event.data && event.data.type === 'edumark-provider-auth') {
         if (event.data.ok) {
           showAuthMessage(true, `Đăng nhập ${event.data.provider?.toUpperCase()} thành công và đã kích hoạt!`);
@@ -1168,7 +1229,7 @@
       try {
         const res = await fetch('/api/v1/auth/providers/accounts', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: adminHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             provider,
             api_key: key,
@@ -1259,7 +1320,7 @@
 
     function formatMathSnippet(text) {
       if (!text) return '';
-      let s = String(text).trim();
+      let s = escapeHtml(String(text).trim());
       // Nếu đã có $...$ hoặc $$...$$ thì giữ nguyên để KaTeX parse đúng
       if (s.includes('$')) return s;
 
@@ -1513,7 +1574,7 @@
           sympyBanner.className = 'mt-2.5 px-3 py-2 rounded-xl text-[12px] font-medium ' + (hasErr
             ? 'bg-rose-500/15 text-rose-300'
             : 'bg-emerald-500/15 text-emerald-300');
-          sympyBanner.innerHTML = `<i class="fa-solid ${hasErr ? 'fa-triangle-exclamation text-rose-400' : 'fa-calculator text-emerald-400'} mr-1.5"></i><strong>SymPy:</strong> ${data.math_verification.summary}`;
+          sympyBanner.innerHTML = `<i class="fa-solid ${hasErr ? 'fa-triangle-exclamation text-rose-400' : 'fa-calculator text-emerald-400'} mr-1.5"></i><strong>SymPy:</strong> ${escapeHtml(data.math_verification.summary)}`;
           sympyBanner.classList.remove('hidden');
         } else {
           sympyBanner.classList.add('hidden');
@@ -1658,9 +1719,10 @@
 
           // Header câu + nút nhảy thẳng tới đúng ảnh nguồn
           const srcBtnsHtml = srcFiles.map((fn) => {
-            const safeFn = fn.replace(/'/g, "\\'");
-            const shortName = fn.length > 14 ? fn.slice(0, 10) + '...' + fn.slice(-4) : fn;
-            return `<button onclick="jumpToSourceFile('${safeFn}')" title="Bấm để xem ảnh ${fn}" class="px-1.5 py-0.5 rounded bg-sky-600/25 hover:bg-sky-600/50 text-sky-200 border border-sky-500/40 text-[10px] font-mono transition"><i class="fa-solid fa-image mr-1"></i>${shortName}</button>`;
+            const safeFnJs = escapeHtml(String(fn).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+            const safeFnTitle = escapeHtml(fn);
+            const shortName = escapeHtml(fn.length > 14 ? fn.slice(0, 10) + '...' + fn.slice(-4) : fn);
+            return `<button onclick="jumpToSourceFile('${safeFnJs}')" title="Bấm để xem ảnh ${safeFnTitle}" class="px-1.5 py-0.5 rounded bg-sky-600/25 hover:bg-sky-600/50 text-sky-200 border border-sky-500/40 text-[10px] font-mono transition"><i class="fa-solid fa-image mr-1"></i>${shortName}</button>`;
           }).join(' ');
 
           const headerDiv = document.createElement('div');
@@ -1670,7 +1732,7 @@
             ${qIcon}
             <div class="space-y-1 min-w-0">
               <div class="flex items-center gap-1.5 flex-wrap">
-                <span class="text-sm font-bold text-slate-100">${qr.question_id}</span>
+                <span class="text-sm font-bold text-slate-100">${escapeHtml(qr.question_id)}</span>
                 ${srcFiles.length > 1 ? '<span class="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono">Ghép ' + srcFiles.length + ' ảnh</span>' : ''}
                 ${srcBtnsHtml}
               </div>
@@ -1688,12 +1750,13 @@
             const linesHtml = qLines.map((l) => {
               const strike = l.is_strikethrough || l.line_type === 'scratch';
               const rawTxt = l.latex || l.raw_text || '';
+              const safeSrcJs = l.source_file ? escapeHtml(String(l.source_file).replace(/\\/g, '\\\\').replace(/'/g, "\\'")) : '';
               return `<div class="py-1 border-b border-slate-800/70 last:border-0 flex items-start justify-between gap-2 text-[11px] ${strike ? 'opacity-50 line-through' : ''}">
-                <div class="overflow-x-auto"><span class="text-[9px] text-slate-500 font-mono mr-1.5">#${l.line_no}</span><span class="text-slate-200 math-content">${formatMathSnippet(rawTxt)}</span></div>
-                ${l.source_file ? `<button onclick="jumpToSourceFile('${l.source_file.replace(/'/g, "\\'")}')" class="text-[9px] font-mono text-sky-400 hover:underline shrink-0">${l.source_file.slice(0, 8)}…</button>` : ''}
+                <div class="overflow-x-auto"><span class="text-[9px] text-slate-500 font-mono mr-1.5">#${Number(l.line_no) || 1}</span><span class="text-slate-200 math-content">${formatMathSnippet(rawTxt)}</span></div>
+                ${l.source_file ? `<button onclick="jumpToSourceFile('${safeSrcJs}')" class="text-[9px] font-mono text-sky-400 hover:underline shrink-0">${escapeHtml(l.source_file.slice(0, 8))}…</button>` : ''}
               </div>`;
             }).join('');
-            det.innerHTML = `<summary class="cursor-pointer text-[11px] text-sky-300 font-semibold"><i class="fa-solid fa-eye mr-1"></i>Xem chữ viết tay AI đọc cho ${qr.question_id} (${qLines.length} dòng)</summary><div class="mt-1.5">${linesHtml}</div>`;
+            det.innerHTML = `<summary class="cursor-pointer text-[11px] text-sky-300 font-semibold"><i class="fa-solid fa-eye mr-1"></i>Xem chữ viết tay AI đọc cho ${escapeHtml(qr.question_id)} (${qLines.length} dòng)</summary><div class="mt-1.5">${linesHtml}</div>`;
             qWrap.appendChild(det);
           }
 
@@ -1750,7 +1813,7 @@
           const strike = l.is_strikethrough || l.line_type === 'scratch';
           lineEl.className = 'p-2 bg-slate-900 rounded border border-slate-800 flex items-center justify-between text-[11px] gap-2' + (strike ? ' opacity-55 line-through' : '');
           const lineRaw = l.latex || l.raw_text || '';
-          const srcBadge = l.source_file ? `<span class="px-1.5 py-0.5 rounded text-[9px] font-mono bg-sky-950/70 text-sky-300 border border-sky-800/60 shrink-0">${l.q_id} · ${l.source_file}</span>` : `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono uppercase bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 shrink-0">${l.q_id || l.line_type}</span>`;
+          const srcBadge = l.source_file ? `<span class="px-1.5 py-0.5 rounded text-[9px] font-mono bg-sky-950/70 text-sky-300 border border-sky-800/60 shrink-0">${escapeHtml(l.q_id)} · ${escapeHtml(l.source_file)}</span>` : `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono uppercase bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 shrink-0">${escapeHtml(l.q_id || l.line_type)}</span>`;
           lineEl.innerHTML = `
             <div class="flex items-center gap-2 overflow-x-auto">
               ${srcBadge}
@@ -1767,7 +1830,7 @@
       if (dupWarn) {
         const mergedIds = (data.folder_reassembly && data.folder_reassembly.merged_question_ids) || [];
         if (mergedIds.length > 0) {
-          dupWarn.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-amber-400 mr-1.5"></i><strong>Cần đối soát ghép câu:</strong> AI thấy các mã câu <code class="text-amber-300">${mergedIds.join(', ')}</code> xuất hiện trên <strong>nhiều ảnh khác nhau</strong>. Hãy bấm từng ảnh ở thanh phía dưới bên trái để kiểm tra xem đây là 1 bài giải trải nhiều trang hay nhiều bài/bản chụp khác nhau!`;
+          dupWarn.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-amber-400 mr-1.5"></i><strong>Cần đối soát ghép câu:</strong> AI thấy các mã câu <code class="text-amber-300">${mergedIds.map(escapeHtml).join(', ')}</code> xuất hiện trên <strong>nhiều ảnh khác nhau</strong>. Hãy bấm từng ảnh ở thanh phía dưới bên trái để kiểm tra xem đây là 1 bài giải trải nhiều trang hay nhiều bài/bản chụp khác nhau!`;
           dupWarn.classList.remove('hidden');
         } else {
           dupWarn.classList.add('hidden');
@@ -1891,15 +1954,24 @@
         return;
       }
 
+      const payload = {
+        submission_id: currentSubmission.submission_id,
+        approve: true,
+        teacher_note: 'Giáo viên đã phê duyệt.'
+      };
+      if (
+        currentSubmission.final_score !== null &&
+        currentSubmission.final_score !== undefined &&
+        Math.abs(Number(currentSubmission.final_score) - Number(currentSubmission.ai_total_score || 0)) > 0.001
+      ) {
+        payload.final_score_override = Number(currentSubmission.final_score);
+      }
+
       try {
         const res = await fetch('/api/v1/submissions/review', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            submission_id: currentSubmission.submission_id,
-            approve: true,
-            teacher_note: 'Giáo viên đã phê duyệt.'
-          })
+          body: JSON.stringify(payload)
         });
         if (res.ok) {
           const data = await res.json();
@@ -1916,6 +1988,10 @@
       if (!currentSubmission) return;
       const newScore = parseFloat(document.getElementById('input-override-score').value);
       const note = document.getElementById('input-override-note').value;
+      const qResList = currentSubmission.question_results || [];
+      const singleOverrides = qResList.length === 1 && qResList[0].question_id
+        ? { [qResList[0].question_id]: newScore }
+        : {};
 
       try {
         const res = await fetch('/api/v1/submissions/review', {
@@ -1923,7 +1999,8 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             submission_id: currentSubmission.submission_id,
-            score_overrides: { 'Q1': newScore },
+            score_overrides: singleOverrides,
+            final_score_override: newScore,
             teacher_note: note,
             approve: true
           })
@@ -2324,15 +2401,15 @@
 
         const card = document.createElement('div');
         card.className = 'bg-slate-800/70 border border-slate-700/80 rounded-xl p-3 space-y-2';
-        const safeQid = (q.question_id || '').replace(/'/g, "\\'");
+        const safeQid = escapeHtml(String(q.question_id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
 
         const head = document.createElement('div');
         head.className = 'flex items-start justify-between gap-2 pb-1.5 border-b border-slate-700/70';
         head.innerHTML = `
           <div class="min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
-              <span class="text-xs font-bold text-sky-300">📌 ${q.question_id}</span>
-              ${q.student_name_detected ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">HS: ${q.student_name_detected}</span>` : ''}
+              <span class="text-xs font-bold text-sky-300">📌 ${escapeHtml(q.question_id)}</span>
+              ${q.student_name_detected ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">HS: ${escapeHtml(q.student_name_detected)}</span>` : ''}
             </div>
             ${q.question_text ? `<p class="text-[11px] text-slate-400 mt-0.5 math-content">${formatMathSnippet(q.question_text)}</p>` : ''}
           </div>
@@ -2411,12 +2488,12 @@
       currentPages.forEach((p, idx) => {
         const row = document.createElement('div');
         row.className = 'flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-900/90 border border-slate-800';
-        const chips = (p.questions || []).map((q) => `<span class="px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-200 border border-indigo-800/60 font-mono text-[10px]">${q.question_id} (${q.line_count})</span>`).join(' ') || '<span class="text-rose-400">Không nhận diện được câu</span>';
+        const chips = (p.questions || []).map((q) => `<span class="px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-200 border border-indigo-800/60 font-mono text-[10px]">${escapeHtml(q.question_id)} (${Number(q.line_count) || 0})</span>`).join(' ') || '<span class="text-rose-400">Không nhận diện được câu</span>';
         row.innerHTML = `
           <div class="min-w-0 flex-1 space-y-1">
             <div class="flex items-center gap-1.5">
-              <span class="font-bold text-sky-300 shrink-0">Ảnh ${p.page_no}</span>
-              <span class="font-mono text-[10px] text-slate-400 truncate" title="${p.source_file}">${p.source_file}</span>
+              <span class="font-bold text-sky-300 shrink-0">Ảnh ${Number(p.page_no) || 1}</span>
+              <span class="font-mono text-[10px] text-slate-400 truncate" title="${escapeHtml(p.source_file)}">${escapeHtml(p.source_file)}</span>
             </div>
             <div class="flex flex-wrap gap-1">${chips}</div>
           </div>
@@ -2447,20 +2524,20 @@
           btn.className = 'w-full text-left p-3 rounded-xl bg-slate-900 hover:bg-slate-700/80 border border-slate-700 flex items-center justify-between gap-2 transition';
           btn.innerHTML = `
             <div class="min-w-0">
-              <div class="font-bold text-slate-100 truncate">${s.exam_title || s.exam_id}</div>
+              <div class="font-bold text-slate-100 truncate">${escapeHtml(s.exam_title || s.exam_id)}</div>
               <div class="text-[11px] text-slate-400 mt-0.5">
-                <span class="font-mono text-sky-300">${s.submission_id}</span> · ${s.student_name} · <strong>${s.page_count || 1} ảnh</strong> · ${(s.extracted_questions || []).length} câu
+                <span class="font-mono text-sky-300">${escapeHtml(s.submission_id)}</span> · ${escapeHtml(s.student_name)} · <strong>${s.page_count || 1} ảnh</strong> · ${(s.extracted_questions || []).length} câu
               </div>
             </div>
             <div class="text-right shrink-0">
               <div class="text-base font-black text-amber-300 font-mono">${Number(score).toFixed(2)}/${Number(s.total_points || 10).toFixed(1)}đ</div>
-              <div class="text-[10px] ${s.status === 'APPROVED' ? 'text-emerald-400' : 'text-indigo-300'}">${s.status}</div>
+              <div class="text-[10px] ${s.status === 'APPROVED' ? 'text-emerald-400' : 'text-indigo-300'}">${escapeHtml(s.status)}</div>
             </div>
           `;
           box.appendChild(btn);
         });
       } catch (e) {
-        box.innerHTML = '<div class="text-rose-400 text-center py-6">Lỗi tải lịch sử: ' + e.message + '</div>';
+        box.innerHTML = '<div class="text-rose-400 text-center py-6">Lỗi tải lịch sử: ' + escapeHtml(e.message) + '</div>';
       }
     }
 
@@ -2944,7 +3021,7 @@
       html += '<th class="p-2 border border-slate-700 font-mono text-[10px]">Dòng</th>';
       gb.columns.forEach((c) => {
         const isSc = c.col_index === gb.score_col;
-        html += `<th class="p-2 border border-slate-700 whitespace-nowrap ${isSc ? 'text-amber-300 bg-amber-950/30' : ''}">${c.name} <span class="text-[9px] text-slate-400">(${c.col_letter})</span></th>`;
+        html += `<th class="p-2 border border-slate-700 whitespace-nowrap ${isSc ? 'text-amber-300 bg-amber-950/30' : ''}">${escapeHtml(c.name)} <span class="text-[9px] text-slate-400">(${escapeHtml(c.col_letter)})</span></th>`;
       });
       if (canFillOne) html += '<th class="p-2 border border-slate-700 text-center">Điền vào dòng này</th>';
       html += '</tr></thead><tbody>';
@@ -2952,11 +3029,11 @@
       (gb.rows || []).forEach((r) => {
         const isHi = lastFilledRowIndex === r.row_index;
         html += `<tr class="${isHi ? 'bg-emerald-950/50' : 'hover:bg-slate-900/70'}">`;
-        html += `<td class="p-1.5 border border-slate-800 font-mono text-slate-500">#${r.row_index}</td>`;
+        html += `<td class="p-1.5 border border-slate-800 font-mono text-slate-500">#${Number(r.row_index) || 0}</td>`;
         gb.columns.forEach((c) => {
-          const v = r.cells[c.col_letter] || '';
+          const v = r.cells[c.col_letter] ?? '';
           const isSc = c.col_index === gb.score_col;
-          html += `<td class="p-1.5 border border-slate-800 ${isSc ? 'font-bold text-amber-300 font-mono' : 'text-slate-200'}">${v}</td>`;
+          html += `<td class="p-1.5 border border-slate-800 ${isSc ? 'font-bold text-amber-300 font-mono' : 'text-slate-200'}">${escapeHtml(v)}</td>`;
         });
         if (canFillOne) {
           html += `<td class="p-1.5 border border-slate-800 text-center"><button onclick="fillCurrentSubmissionToGradebook(${r.row_index})" class="px-2 py-0.5 rounded bg-cyan-700 hover:bg-cyan-600 text-white text-[10px] font-bold">✍️ Điền #${r.row_index}</button></td>`;

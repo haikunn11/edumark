@@ -121,9 +121,50 @@ def clean_and_normalize_math_latex(latex_str: str) -> str:
     return s
 
 
-_LATEX_BS_CMD_RE = re.compile(
-    r"^(?:frac|text|times|to|tau|theta|neq|nu|nabla|begin|beta|boxed|bar|binom|right|rightarrow|rho|radical)\b"
+_LATEX_BS_CMD_PATTERN = (
+    r"(?:frac|forall|text|times|to|tau|theta|tan|triangle|therefore|"
+    r"neq|nu|nabla|notin|not|begin|beta|boxed|bar|binom|bot|big|bmod|"
+    r"right|rightarrow|rho|radical|rangle)"
 )
+_LATEX_BS_CMD_RE = re.compile(rf"^{_LATEX_BS_CMD_PATTERN}\b")
+_UNESCAPED_LATEX_JSON_RE = re.compile(rf"(?:^|[^\\])(?:\\\\)*\\{_LATEX_BS_CMD_PATTERN}\b")
+
+
+def _safe_ocr_float(val, default: float = 0.9) -> float:
+    if val is None or val == "":
+        return default
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return default
+
+
+def _extract_balanced_json_object(text: str) -> str | None:
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if esc:
+            esc = False
+            continue
+        if ch == "\\" and in_str:
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if not in_str:
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start : i + 1]
+    return None
 
 
 def _repair_json_backslashes(s: str) -> str:
@@ -168,6 +209,9 @@ def _repair_json_backslashes(s: str) -> str:
 
 def _safe_json_loads(s: str):
     """Parse JSON chịu lỗi backslash LaTeX và ký tự điều khiển từ LLM."""
+    if _UNESCAPED_LATEX_JSON_RE.search(s):
+        repaired = _repair_json_backslashes(s)
+        return json.loads(repaired, strict=False)
     try:
         return json.loads(s, strict=False)
     except json.JSONDecodeError:
@@ -201,9 +245,10 @@ def parse_and_validate_ocr_json(raw_text: str) -> list[ExtractedQuestion]:
                 text,
                 re.DOTALL,
             )
-            if m_dict:
+            candidate_obj = m_dict.group(0) if m_dict else _extract_balanced_json_object(text)
+            if candidate_obj:
                 try:
-                    data = _safe_json_loads(m_dict.group(0))
+                    data = _safe_json_loads(candidate_obj)
                 except json.JSONDecodeError as exc:
                     raise JSONParseError(f"Không thể giải mã đối tượng JSON OCR: {exc}")
             else:
@@ -274,7 +319,7 @@ def parse_and_validate_ocr_json(raw_text: str) -> list[ExtractedQuestion]:
             except ValueError:
                 line_type = LineType.EQUATION
 
-            conf = float(line.get("confidence", 0.9))
+            conf = _safe_ocr_float(line.get("confidence"), 0.9)
             conf = max(0.0, min(1.0, conf))
 
             latex_str = str(line.get("latex") or line.get("raw_latex") or line.get("raw_text") or "")
@@ -297,7 +342,7 @@ def parse_and_validate_ocr_json(raw_text: str) -> list[ExtractedQuestion]:
             parsed_lines.append(parsed_line)
 
         active_lines = [l for l in parsed_lines if not l.is_strikethrough] or parsed_lines
-        q_conf = float(item.get("confidence", 0.9))
+        q_conf = _safe_ocr_float(item.get("confidence"), 0.9)
         if active_lines:
             q_conf = round(sum(l.confidence for l in active_lines) / len(active_lines), 2)
 
@@ -711,6 +756,8 @@ TRẢ VỀ JSON OBJECT HỢP LỆ:
                     if usage_sink is not None:
                         usage_sink.update(u)
                 return parse_and_validate_ocr_json(raw_content)
+            except OCRLowConfidenceError:
+                raise
             except Exception as e:
                 last_exc = e
                 err_s = str(e)
@@ -813,6 +860,8 @@ TRẢ VỀ JSON OBJECT HỢP LỆ:
                         if usage_sink is not None:
                             usage_sink.update(u)
                     return parse_and_validate_ocr_json(response.text)
+                except OCRLowConfidenceError:
+                    raise
                 except Exception as e:
                     last_exc = e
                     err_s = str(e)

@@ -250,6 +250,7 @@ def _call_gemini_rubric(prompt: str, image_pages: list[bytes]) -> str:
 
     candidate_models: list[str] = []
     for m in (
+        reasoning_agent.model_name,
         settings.DEFAULT_REASONING_MODEL,
         "gemini-3.1-flash-lite",
         "gemini-3.1-flash-lite-preview",

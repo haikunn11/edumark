@@ -186,9 +186,33 @@ class AutomatedGradingPipeline:
             if not student_name or student_name.strip() in ("", "Học sinh ẩn danh"):
                 record.student_name = detected_name
 
-        # --- BƯỚC 3: Kiểm chứng toán học SymPy ---
+        # --- BƯỚC 3: Kiểm chứng toán học SymPy (phủ tất cả các câu trích xuất được) ---
         t_sympy_start = time.perf_counter()
-        primary_mv = verify_question_math(extracted_questions[0]) if extracted_questions else None
+        mv_map = {q.question_id: verify_question_math(q) for q in extracted_questions}
+        if len(extracted_questions) == 1:
+            primary_mv = mv_map[extracted_questions[0].question_id]
+        elif len(extracted_questions) > 1:
+            from backend.app.models.schemas import MathVerificationSummary
+
+            all_eq = sum(m.equations_checked for m in mv_map.values())
+            all_v = sum(m.valid_transitions for m in mv_map.values())
+            all_inv = sum(m.invalid_transitions for m in mv_map.values())
+            all_roots = [r for m in mv_map.values() for r in m.detected_roots]
+            all_issues = [f"[{qid}] {iss}" for qid, m in mv_map.items() for iss in m.issues]
+            primary_mv = MathVerificationSummary(
+                equations_checked=all_eq,
+                valid_transitions=all_v,
+                invalid_transitions=all_inv,
+                detected_roots=all_roots,
+                issues=all_issues,
+                summary=(
+                    f"SymPy kiểm chứng {all_eq} PT ({len(extracted_questions)} câu): {all_v} bước đúng, {all_inv} bước nghi sai."
+                    if all_eq > 0
+                    else "Chưa trích xuất được phương trình đại số đơn giản để SymPy kiểm chứng."
+                ),
+            )
+        else:
+            primary_mv = None
         record.math_verification = primary_mv
         sympy_ms = int(round((time.perf_counter() - t_sympy_start) * 1000))
 
@@ -198,7 +222,18 @@ class AutomatedGradingPipeline:
             self.reasoning_agent.reset_last_usage()
 
         if rubric.exam_id == "AUTO" or not rubric.questions:
-            if extracted_questions:
+            if len(extracted_questions) > 1:
+                exam_title, multi_res = self.reasoning_agent.grade_auto_rubric_multi(
+                    extracted_questions,
+                    mv_map=mv_map,
+                )
+                rubric.title = exam_title
+                record.exam_title = exam_title
+                record.question_results.extend(multi_res)
+                total_ai_score = round(sum(r.suggested_score for r in multi_res), 2)
+                any_review_needed = any(r.needs_review for r in multi_res)
+                record.total_points = round(sum((r.total_points or r.max_score) for r in multi_res), 2) or 10.0
+            elif extracted_questions:
                 exam_title, q_result = self.reasoning_agent.grade_auto_rubric(
                     extracted_questions,
                     math_verification=primary_mv,

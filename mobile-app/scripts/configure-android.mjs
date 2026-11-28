@@ -55,11 +55,11 @@ public class MainActivity extends BridgeActivity {
             WebSettings ws = webView.getSettings();
             ws.setDomStorageEnabled(true);
             ws.setMediaPlaybackRequiresUserGesture(false);
-            ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+            ws.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
             webView.setDownloadListener(new DownloadListener() {
                 @Override
                 public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
-                    if (url != null && !url.startsWith("blob:")) {
+                    if (url != null && (url.startsWith("https://") || url.startsWith("http://"))) {
                         try {
                             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
                             startActivity(intent);

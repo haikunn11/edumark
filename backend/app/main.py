@@ -26,12 +26,17 @@ except Exception as _sync_exc:
 @app.exception_handler(Exception)
 async def global_json_exception_handler(request: Request, exc: Exception):
     traceback.print_exc()
+    msg = (
+        f"Lỗi xử lý nội bộ ({type(exc).__name__}): {exc}"
+        if settings.ENVIRONMENT == "local"
+        else "Lỗi xử lý nội bộ. Vui lòng thử lại sau."
+    )
     return JSONResponse(
         status_code=500,
         content={
             "detail": {
                 "error_code": "E500",
-                "message": f"Lỗi xử lý nội bộ ({type(exc).__name__}): {exc}",
+                "message": msg,
             }
         },
     )

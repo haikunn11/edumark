@@ -29,11 +29,26 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
+          cache: 'gradle'
 
       - name: Override default server URL if provided
         if: ${{ inputs.default_server_url != '' }}
+        env:
+          DEFAULT_SERVER_URL: ${{ inputs.default_server_url }}
         run: |
-          python3 -c "p='mobile-app/www/index.html'; s=open(p,encoding='utf-8').read().replace(\"const DEFAULT_SERVER_URL = 'https://edumark-ai-843912880185.asia-southeast1.run.app';\", \"const DEFAULT_SERVER_URL = '${{ inputs.default_server_url }}';\"); open(p,'w',encoding='utf-8').write(s)"
+          python3 - << 'EOF'
+          import json, os, re
+          url = os.environ["DEFAULT_SERVER_URL"].strip().rstrip("/")
+          if not re.match(r"^https?://[^\s/$.?#].[^\s]*$", url):
+              raise ValueError(f"Invalid default_server_url: {url!r}")
+          p = "mobile-app/www/index.html"
+          s = open(p, encoding="utf-8").read()
+          old = "const DEFAULT_SERVER_URL = 'https://edumark-ai-843912880185.asia-southeast1.run.app';"
+          new = f"const DEFAULT_SERVER_URL = {json.dumps(url)};"
+          if old not in s:
+              raise RuntimeError("Target DEFAULT_SERVER_URL assignment not found")
+          open(p, "w", encoding="utf-8").write(s.replace(old, new, 1))
+          EOF
 
       - name: Install Capacitor dependencies
         working-directory: mobile-app
