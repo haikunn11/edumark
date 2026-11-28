@@ -109,12 +109,20 @@ def test_v82_04_legacy_config_key_preserves_env_and_detects_openrouter(tmp_path,
     assert "GOOGLE_OAUTH_CLIENT_ID=keep-cid" in content
     assert "OPENROUTER_API_KEY=sk-or-mock_123" in content
 
+    # Cô lập không cho test ghi vào file .env thật của repo
+    redirected_updates = {}
+    monkeypatch.setattr(routes, "_upsert_env_file", lambda _p, upd: redirected_updates.update(upd))
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", settings.GEMINI_API_KEY)
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", settings.OPENAI_API_KEY)
+    monkeypatch.setattr(settings, "AI_PROVIDER", settings.AI_PROVIDER)
+
     bad = client.post("/api/v1/config/key", json={"api_key": "mock_abc\nADMIN_API_TOKEN=pwn"})
     assert bad.status_code == 400
 
     res = client.post("/api/v1/config/key", json={"api_key": "mock_gemini_safe"})
     assert res.status_code == 200
     assert res.json()["account"]["provider"] == "gemini"
+    assert redirected_updates.get("GEMINI_API_KEY") == "mock_gemini_safe"
     client.delete(f"/api/v1/auth/providers/accounts/{res.json()['account']['account_id']}")
 
 
