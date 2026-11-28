@@ -29,7 +29,16 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-          cache: 'gradle'
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('mobile-app/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
 
       - name: Override default server URL if provided
         if: ${{ inputs.default_server_url != '' }}
